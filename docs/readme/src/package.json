@@ -1,0 +1,13 @@
+{
+  "name": "seaward-readme-pictures",
+  "private": true,
+  "type": "module",
+  "description": "Takes the README's pictures from the running demo and from real command-line sessions, and stages them as glass scenes.",
+  "scripts": {
+    "shots": "./build.sh ../../../bin/seaward ../../../pages"
+  },
+  "devDependencies": {
+    "playwright": "1.65.0",
+    "three": "0.170.0"
+  }
+}

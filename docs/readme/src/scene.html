@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Glass</title>
+<style>
+  /* The demo's own two families, from the repository (web/src/assets/fonts, OFL). Nothing is fetched. */
+  @font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400 700; font-stretch: 75% 100%; font-display: block;
+    src: url("/fonts/instrument-sans-latin.woff2") format("woff2"); }
+  @font-face { font-family: "Instrument Sans"; font-style: italic; font-weight: 400 700; font-stretch: 75% 100%; font-display: block;
+    src: url("/fonts/instrument-sans-italic-latin.woff2") format("woff2"); }
+  @font-face { font-family: "Spline Sans Mono"; font-style: normal; font-weight: 300 700; font-display: block;
+    src: url("/fonts/spline-sans-mono-latin.woff2") format("woff2"); }
+  html, body { margin: 0; overflow: hidden; background: #000; }
+  canvas { position: absolute; left: 0; top: 0; display: block; }
+  #type { position: absolute; inset: 0; pointer-events: none; font-family: "Instrument Sans", sans-serif; font-synthesis: none;
+    -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; font-variant-numeric: lining-nums; }
+  #type .el { position: absolute; white-space: nowrap; }
+  /* the name and the headings are set as the demo sets its verdict: semibold, drawn a little narrow, tight */
+  .name { font-weight: 600; font-stretch: 86%; letter-spacing: -0.024em; line-height: 1; }
+  .name svg { display: inline-block; vertical-align: -0.075em; width: 0.86em; height: 0.86em; margin-right: 0.2em; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: square; }
+  .name svg circle { fill: currentColor; stroke: none; }
+  .head { font-weight: 600; font-stretch: 84%; letter-spacing: -0.022em; line-height: 1.06; }
+  .line { font-weight: 400; letter-spacing: -0.003em; line-height: 1.46; text-wrap: pretty; }
+  /* above a heading: the command the picture shows */
+  .kick { font-family: "Spline Sans Mono", monospace; font-weight: 400; letter-spacing: 0; }
+  .kick i { font-style: normal; opacity: 0.6; }
+  /* a figure is set as a chart sets a sounding: italic, lining, narrow */
+  .fact b { display: block; font-size: 27px; font-style: italic; font-weight: 500; font-stretch: 88%; font-variant-numeric: tabular-nums lining-nums; letter-spacing: -0.01em; line-height: 1; margin-bottom: 8px; }
+  .fact span { display: block; font-size: 11.5px; font-weight: 400; letter-spacing: 0.002em; line-height: 1.4; }
+  .big b { display: block; font-style: italic; font-weight: 500; font-stretch: 88%; font-variant-numeric: tabular-nums lining-nums; letter-spacing: -0.012em; line-height: 1; }
+  .big span { display: block; font-weight: 400; letter-spacing: 0.002em; line-height: 1.35; }
+  /* a rule is the chart's border: two hairlines */
+  .rule { position: absolute; height: 2px; border-top: 1px solid; border-bottom: 1px solid; box-sizing: content-box; }
+  .hair { position: absolute; height: 1px; }
+</style>
+<script type="importmap">{ "imports": { "three": "/three/three.module.js" } }</script>
+</head><body>
+<canvas id="c"></canvas>
+<div id="type"></div>
+<script type="module" src="./scene.js"></script>
+</body></html>
