@@ -14,6 +14,7 @@ defaults:
 
 jobs:
   test:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -75,6 +76,7 @@ jobs:
   # is built for real in a throwaway network namespace, real packets are sent through it, and
   # what happened is compared with what the engine said would happen.
   kernel:
+    timeout-minutes: 25
     name: the engine against the real kernel
     runs-on: ubuntu-latest
     steps:
@@ -85,12 +87,15 @@ jobs:
           cache: false
       - name: the tools the scenarios are written in
         run: |
-          # The runner's package mirror sometimes cannot be resolved for a moment. Five tries, a pause
-          # between them, and the step still fails when the last one does.
+          # The runner's own package mirror sometimes cannot be resolved, and apt does not fall back from it
+          # by itself: after a failed try the mirror is dropped, so the next try uses Ubuntu's main archive.
+          # Five tries, a pause between them, and the step still fails when the last one does.
+          APT='-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60'
           apt_install() {
             for try in 1 2 3 4 5; do
-              if sudo apt-get update -qq && sudo apt-get install -y -qq "$@"; then return 0; fi
+              if sudo apt-get $APT update -qq && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
               echo "apt-get could not install $* (try $try of 5)" >&2
+              sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
               [ "$try" = 5 ] || sleep 20
             done
             return 1
@@ -121,6 +126,7 @@ jobs:
   # has to say that 8080 is exposed, that 9000 is stopped and that 9001 is open, and then a real
   # connection from outside has to do the same on every one of them.
   machine:
+    timeout-minutes: 25
     name: a real machine, ${{ matrix.firewall }} on, Docker publishing past it
     runs-on: ubuntu-latest
     strategy:
@@ -138,12 +144,15 @@ jobs:
         if: matrix.firewall == 'ufw'
         run: |
           set -eux
-          # The runner's package mirror sometimes cannot be resolved for a moment. Five tries, a pause
-          # between them, and the step still fails when the last one does.
+          # The runner's own package mirror sometimes cannot be resolved, and apt does not fall back from it
+          # by itself: after a failed try the mirror is dropped, so the next try uses Ubuntu's main archive.
+          # Five tries, a pause between them, and the step still fails when the last one does.
+          APT='-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60'
           apt_install() {
             for try in 1 2 3 4 5; do
-              if sudo apt-get update -qq && sudo apt-get install -y -qq "$@"; then return 0; fi
+              if sudo apt-get $APT update -qq && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
               echo "apt-get could not install $* (try $try of 5)" >&2
+              sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
               [ "$try" = 5 ] || sleep 20
             done
             return 1
@@ -158,12 +167,15 @@ jobs:
         if: matrix.firewall == 'firewalld'
         run: |
           set -eux
-          # The runner's package mirror sometimes cannot be resolved for a moment. Five tries, a pause
-          # between them, and the step still fails when the last one does.
+          # The runner's own package mirror sometimes cannot be resolved, and apt does not fall back from it
+          # by itself: after a failed try the mirror is dropped, so the next try uses Ubuntu's main archive.
+          # Five tries, a pause between them, and the step still fails when the last one does.
+          APT='-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60'
           apt_install() {
             for try in 1 2 3 4 5; do
-              if sudo apt-get update -qq && sudo apt-get install -y -qq "$@"; then return 0; fi
+              if sudo apt-get $APT update -qq && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
               echo "apt-get could not install $* (try $try of 5)" >&2
+              sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
               [ "$try" = 5 ] || sleep 20
             done
             return 1
@@ -313,6 +325,7 @@ jobs:
   # A snapshot is read on whatever the reader has, so the tests run on macOS too before a
   # macOS binary is published. (Not while the repository is private: macOS minutes count tenfold there.)
   macos:
+    timeout-minutes: 25
     if: ${{ !github.event.repository.private }}
     runs-on: macos-latest
     steps:
@@ -331,6 +344,7 @@ jobs:
           ./seaward scan -f samples/shop-1.snapshot
 
   gitleaks:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
