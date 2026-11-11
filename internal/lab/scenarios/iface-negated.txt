@@ -1,0 +1,15 @@
+name: iface-negated
+about: ! -i eth1 matches every interface but eth1.
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT ! -i eth1 -p tcp -m tcp --dport 22 -j DROP
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth0 198.51.100.7 10.20.0.1 tcp 22 want:silent

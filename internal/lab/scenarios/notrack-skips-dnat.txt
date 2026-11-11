@@ -1,0 +1,22 @@
+name: notrack-skips-dnat
+about: NAT works through connection tracking, so an untracked packet is never rewritten: the
+about: REDIRECT for 8080 does nothing and the packet meets the closed port 8080 itself.
+--- iptables
+*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A PREROUTING -p tcp -m tcp --dport 8080 -j NOTRACK
+COMMIT
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -p tcp -m tcp --dport 8080 -j REDIRECT --to-ports 22
+-A PREROUTING -p tcp -m tcp --dport 8081 -j REDIRECT --to-ports 22
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8081 want:open

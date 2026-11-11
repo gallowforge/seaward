@@ -1,0 +1,22 @@
+name: port-range
+about: --dport 1000:2000 includes both ends. The protocol match decides which protocol it is for.
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 1000:2000 -j DROP
+COMMIT
+--- listen
+host tcp 0.0.0.0 999
+host tcp 0.0.0.0 1000
+host tcp 0.0.0.0 2000
+host tcp 0.0.0.0 2001
+host udp 0.0.0.0 1500
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 999 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 1000 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 1500 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 2000 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 2001 want:open
+eth0 198.51.100.7 203.0.113.10 udp 1500 want:open

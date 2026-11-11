@@ -1,0 +1,22 @@
+name: limit-first-packet
+about: -m limit and -m hashlimit let a first packet through: the burst is full at the start.
+about: Each port here gets exactly one probe, so the limit is never used up.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -m limit --limit 1/min --limit-burst 1 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -m hashlimit --hashlimit-upto 1/min --hashlimit-burst 1 --hashlimit-mode srcip --hashlimit-name lab -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 443 -m limit --limit 1/min --limit-burst 1 -j DROP
+-A INPUT -p tcp -m tcp --dport 443 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.200 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:silent

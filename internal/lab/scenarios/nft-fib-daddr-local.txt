@@ -1,0 +1,29 @@
+name: nft-fib-daddr-local
+about: fib daddr type local is true for every address of the machine; fib daddr . iif type local
+about: only for addresses of the arriving interface, so eth1's address reached through eth0 is not.
+about: But redirect rewrites to the arriving interface's address: eth1's address on 8080 through eth0
+about: becomes 203.0.113.10:22, which then passes the per-interface check.
+--- nft
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		fib daddr type local tcp dport 8080 redirect to :22
+	}
+}
+table ip filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		fib daddr . iif type local tcp dport 22 accept
+		fib daddr type local tcp dport 80 accept
+	}
+}
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 10.20.0.1 tcp 22 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth0 198.51.100.7 10.20.0.1 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth0 198.51.100.7 10.20.0.1 tcp 8080 want:open

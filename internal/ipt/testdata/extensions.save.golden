@@ -1,0 +1,238 @@
+table ip mangle (iptables)
+  chain PREROUTING: hook prerouting, type filter, priority -150, policy accept
+    -A PREROUTING -j MARK --set-xmark 0x1/0xff
+      setmark ct=false and=0xffffff00 xor=0x1
+    -A PREROUTING -j MARK --set-xmark 0x4/0x4
+      setmark ct=false and=0xfffffffb xor=0x4
+    -A PREROUTING -j MARK --set-xmark 0x0/0xfffffffb
+      setmark ct=false and=0x4 xor=0x0
+    -A PREROUTING -j MARK --set-xmark 0x4/0x0
+      setmark ct=false and=0xffffffff xor=0x4
+    -A PREROUTING -j MARK --set-xmark 0x5/0xffffffff
+      setmark ct=false and=0x0 xor=0x5
+    -A PREROUTING -j MARK --set-xmark 0x10/0x11
+      setmark ct=false and=0xffffffee xor=0x10
+    -A PREROUTING -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff
+      copymark toct=true mask=0xffffffff
+    -A PREROUTING -j CONNMARK --restore-mark --nfmask 0xff --ctmask 0xff
+      copymark toct=false mask=0xff
+    -A PREROUTING -j CONNMARK --set-xmark 0x3/0x7
+      setmark ct=true and=0xfffffff8 xor=0x3
+    -A PREROUTING -p tcp -j TPROXY --on-port 1 --on-ip 0.0.0.0 --tproxy-mark 0x1/0x1
+      match l4proto in {6}
+      unknown statement: the TPROXY target hands the packet to a local proxy socket, which seaward does not follow
+  chain INPUT: hook input, type filter, priority -150, policy accept
+  chain FORWARD: hook forward, type filter, priority -150, policy accept
+  chain OUTPUT: hook output, type route, priority -150, policy accept
+  chain POSTROUTING: hook postrouting, type filter, priority -150, policy accept
+table ip raw (iptables)
+  chain PREROUTING: hook prerouting, type filter, priority -300, policy accept
+    -A PREROUTING -j CT --notrack
+      notrack
+    -A PREROUTING -j NOTRACK
+      notrack
+    -A PREROUTING -m rpfilter --loose --invert -j DROP
+      unknown: the rpfilter match with --loose checks the route back to the sender in a way seaward does not model
+      drop
+  chain OUTPUT: hook output, type filter, priority -300, policy accept
+table ip filter (iptables)
+  chain INPUT: hook input, type filter, priority 0, policy accept
+  chain FORWARD: hook forward, type filter, priority 0, policy accept
+  chain OUTPUT: hook output, type filter, priority 0, policy accept
+  chain web
+    -A web -m comment --comment "allow web \"prod\" it\'s" -j LOG --log-prefix "[UFW BLOCK] "
+      always: comment: allow web "prod" it's
+      noop: log (LOG)
+    -A web -p icmp -m icmp --icmp-type 8
+      match l4proto in {1}
+      match icmp-type in {8}
+    -A web -p icmp -m icmp --icmp-type 3/4
+      match l4proto in {1}
+      unknown: the icmp match checks code 4 of type 3, and seaward models only the type
+    -A web -p icmp -m icmp --icmp-type any
+      match l4proto in {1}
+      always: any icmp type
+    -A web -s 10.0.0.0/255.0.255.0 -p 47
+      unknown: the source address 10.0.0.0/255.0.255.0 has a mask with gaps in it, which seaward cannot represent
+      match l4proto in {47}
+    -A web -p esp
+      match l4proto in {50}
+    -A web -m conntrack --ctstate NEW,DNAT --ctstatus ASSURED --ctdir REPLY
+      match ctstate . ctstatus-dnat in {(8 . *), (* . 1)}
+      never: connection status ASSURED: none of these is set on a first packet
+      match ctdir in {1}
+    -A web -p tcp -m tcp ! --dport 80:90 --tcp-flags FIN,SYN,RST,ACK SYN
+      match l4proto in {6}
+      match dport not in {80-90}
+      match tcpflags&0x17 in {2}
+    -A web -p tcp -m multiport --ports 1,2:5
+      match l4proto in {6}
+      match sport . dport in {(1 . *), (* . 1), (2-5 . *), (* . 2-5)}
+    -A web -m mark ! --mark 0x1/0xff -m connmark --mark 0x2
+      match mark&0xff not in {1}
+      match ctmark in {2}
+    -A web -m iprange ! --src-range 192.0.2.1-192.0.2.9 --dst-range 192.0.2.10-192.0.2.20
+      match saddr not in {192.0.2.1-192.0.2.9}
+      match daddr in {192.0.2.10-192.0.2.20}
+    -A web -m pkttype --pkt-type broadcast
+      match pkttype in {1}
+    -A web -m policy --dir in --pol none
+      match ipsec-in in {0}
+    -A web -m policy --dir in --pol ipsec --strict --proto esp
+      match ipsec-in in {1}
+      unknown: the policy match checks details of the IPsec policy (--strict --proto), which seaward does not model
+    -A web -f
+      never: fragments only (-f): a first packet is never a later fragment
+    -A web ! -f
+      always: not a fragment: a first packet is never one
+    -A web -m limit --limit 3/min --limit-burst 10
+      always: rate limit (-m limit): its burst lets a first packet through
+    -A web -m hashlimit --hashlimit-above 5/sec --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-name x
+      never: rate above a limit (-m hashlimit --hashlimit-above): a first packet is never over it
+    -A web -m hashlimit --hashlimit-upto 5/sec --hashlimit-burst 5 --hashlimit-mode srcip --hashlimit-name y
+      always: rate limit (-m hashlimit): its burst lets a first packet through
+    -A web -m recent --set --name x --mask 255.255.255.255 --rsource
+      always: remember the sender (-m recent --set)
+    -A web -m recent ! --update --seconds 30 --hitcount 6 --name x --mask 255.255.255.255 --rsource
+      always: not seen recently (! -m recent --update): a first packet's sender was never seen
+    -A web -m recent --rcheck --seconds 60 --name x --mask 255.255.255.255 --rsource
+      unknown: the recent match checks the list x, which other rules fill, so a first packet may already be on it
+    -A web -m connlimit --connlimit-above 3 --connlimit-mask 32 --connlimit-saddr
+      never: connection count --connlimit-above 3 (a first connection counts 1)
+    -A web -m connlimit --connlimit-upto 3 --connlimit-mask 24 --connlimit-saddr
+      unknown: the connlimit match counts connections from more than one sender (--connlimit-mask), which seaward cannot know
+    -A web -m state --state INVALID
+      match ctstate in {1}
+    -A web -m conntrack ! --ctstate INVALID --ctproto 6 --ctorigdst 192.0.2.1 --ctorigdstport 80
+      match ctstate not in {1}
+      unknown: the conntrack match skips its other tests for packets without a connection, which seaward cannot express here
+    -A web -m conntrack --ctorigsrc 192.0.2.4 --ctstatus EXPECTED,SEEN_REPLY,CONFIRMED
+      match ctstate in {8, 2, 4}
+      unknown: the conntrack match option --ctorigsrc looks at the connection's original source address, which seaward does not model
+      never: connection status EXPECTED,SEEN_REPLY,CONFIRMED: none of these is set on a first packet
+    -A web -m conntrack --ctstate SNAT,DNAT
+      match ctstatus-dnat . ctstatus-snat in {(1 . *), (* . 1)}
+    -A web -m string --string "GET /x" --algo bm -m length --length 10:20 -m ttl --ttl-gt 3 -m time --timestart 09:00:00 --timestop 23:59:59 --datestop 2038-01-19T03:14:07 -j ACCEPT
+      unknown: the string match (-m string) looks inside the packet's data, which seaward does not model
+      unknown: the length match (-m length) looks at the packet's length, which seaward does not model
+      unknown: the ttl match (-m ttl) looks at the packet's time-to-live, which seaward does not model
+      unknown: the time match (-m time) depends on the time of day or the date, which seaward does not model
+      accept
+    -A web -m u32 --u32 "0x0>>0x16&0x3c@0xc>>0x1a&0x3c@0x0=0x504f5354"
+      unknown: the u32 match (-m u32) tests raw bytes of the packet, which seaward does not model
+    -A web -m owner --uid-owner 0
+      unknown: the owner match (-m owner) looks at which local program sent the packet, which seaward does not model
+    -A web -m mac --mac-source 00:11:22:33:44:55
+      unknown: the mac match (-m mac) looks at the sender's hardware (MAC) address, which seaward does not model
+    -A web -m statistic --mode random --probability 0.50000000000
+      unknown: the statistic match (-m statistic) matches only some packets, at random or by count, which seaward does not model
+    -A web -p tcp -m tcp --sport 1:65535 --tcp-option 2
+      match l4proto in {6}
+      match sport in {1-65535}
+      unknown: the tcp match option --tcp-option looks at TCP options, which seaward does not model
+    -A web -p udp -m udp --sport 0:100
+      match l4proto in {17}
+      match sport in {0-100}
+    -A web -p sctp -m sctp --dport 5
+      match l4proto in {132}
+      match dport in {5}
+    -A web -m socket --transparent
+      unknown: the socket match (-m socket) looks for a matching local socket, which seaward does not model
+    -A web -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+      match l4proto in {6}
+      match tcpflags&0x6 in {2}
+      noop: TCP MSS clamping (TCPMSS)
+    -A web -j NFQUEUE --queue-num 3
+      unknown statement: the NFQUEUE target passes the packet to a program that decides its fate
+    -A web -p tcp -j REJECT --reject-with tcp-reset
+      match l4proto in {6}
+      reject
+    -A web -j REJECT --reject-with icmp-port-unreachable
+      reject
+    -A web -g web
+      goto web
+    -A web -i eth+ ! -o docker0 -p udplite
+      match iifname in {"eth"*}
+      match oifname not in {"docker0"}
+      match l4proto in {136}
+    -A web -p sctp -m multiport --dports 1,5:7
+      match l4proto in {132}
+      match dport in {1, 5-7}
+    -A web -m policy --dir out --pol none
+      unknown: the policy match looks at the IPsec policy for leaving packets (--dir out), which seaward does not model
+    -A web -p tcp -m tcp --sport 80 --dport 22
+      match l4proto in {6}
+      match sport in {80}
+      match dport in {22}
+    -A web -m dscp --dscp 0x01
+      unknown: the dscp match (-m dscp) looks at the packet's DSCP priority field, which seaward does not model
+    -A web -m tos --tos 0x10/0xff
+      unknown: the tos match (-m tos) looks at the packet's type-of-service field, which seaward does not model
+    -A web -p tcp -m ecn --ecn-tcp-cwr
+      match l4proto in {6}
+      unknown: the ecn match (-m ecn) looks at the packet's congestion (ECN) bits, which seaward does not model
+    -A web -p tcp -m tcpmss --mss 1:500
+      match l4proto in {6}
+      unknown: the tcpmss match (-m tcpmss) looks at the TCP maximum segment size option, which seaward does not model
+    -A web -m devgroup --src-group 0x1
+      unknown: the devgroup match (-m devgroup) looks at the interface group number, which seaward does not model
+    -A web -m cpu --cpu 1
+      unknown: the cpu match (-m cpu) looks at which processor handles the packet, which seaward does not model
+    -A web -m quota --quota 1000
+      unknown: the quota match (-m quota) stops matching after a number of bytes, which seaward does not model
+    -A web -m helper --helper ftp
+      unknown: the helper match (-m helper) looks at which connection helper (FTP, SIP and so on) made the connection, which seaward does not model
+    -A web -m physdev --physdev-in eth0
+      unknown: the physdev match (-m physdev) looks at which bridge port the packet used, which seaward does not model
+    -A web -m cgroup --path "user.slice"
+      unknown: the cgroup match (-m cgroup) looks at which group of local programs the packet belongs to, which seaward does not model
+    -A web -m addrtype --dst-type LOCAL --limit-iface-in
+      unknown: the addrtype match with --limit-iface-in only counts the addresses of one interface, which seaward does not model
+    -A web -m pkttype --pkt-type multicast
+      match pkttype in {2}
+    -A web -j AUDIT --type drop
+      noop: audit record (AUDIT)
+    -A web -j NFLOG --nflog-group 2
+      noop: log (NFLOG)
+    -A web -j CLASSIFY --set-class 0001:0001
+      noop: set traffic class (CLASSIFY)
+    -A web -j TRACE
+      noop: trace (TRACE)
+    -A web -m connbytes --connbytes 10 --connbytes-mode bytes --connbytes-dir both
+      unknown: the connbytes match (-m connbytes) looks at how much traffic the connection has carried, which seaward does not model
+table ip nat (iptables)
+  chain PREROUTING: hook prerouting, type nat, priority -100, policy accept
+    -A PREROUTING -p tcp -m tcp --dport 80 -j DNAT --to-destination 192.0.2.2-192.0.2.9:8000-8010 --random --persistent
+      match l4proto in {6}
+      match dport in {80}
+      dnat addr 192.0.2.2-192.0.2.9 port 8000-8010
+    -A PREROUTING -p tcp -m tcp --dport 81 -j DNAT --to-destination :8080
+      match l4proto in {6}
+      match dport in {81}
+      dnat port 8080
+    -A PREROUTING -p tcp -m tcp --dport 82 -j REDIRECT --to-ports 8000-8010
+      match l4proto in {6}
+      match dport in {82}
+      redirect port 8000-8010
+    -A PREROUTING -p tcp -m tcp --dport 83 -j REDIRECT
+      match l4proto in {6}
+      match dport in {83}
+      redirect
+    -A PREROUTING -p tcp -m tcp --dport 84 -j DNAT --to-destination 192.0.2.2:80-90/85
+      match l4proto in {6}
+      match dport in {84}
+      unknown statement: the DNAT target destination 192.0.2.2:80-90/85 is not one seaward can read
+    -A PREROUTING -m addrtype ! --src-type UNICAST,BLACKHOLE --dst-type LOCAL -j RETURN
+      match saddr-type not in {1, 6}
+      match daddr-type in {2}
+      return
+    -A PREROUTING -j NETMAP --to 10.0.0.0/8
+      unknown statement: the NETMAP target rewrites the destination network, which seaward does not follow
+  chain INPUT: hook input, type nat, priority 100, policy accept
+  chain OUTPUT: hook output, type nat, priority -100, policy accept
+  chain POSTROUTING: hook postrouting, type nat, priority 100, policy accept
+    -A POSTROUTING -j NETMAP --to 10.0.0.0/8
+      noop: source network mapping (NETMAP)
+    -A POSTROUTING -o eth+ -j SNAT --to-source 192.0.2.1
+      match oifname in {"eth"*}
+      noop: source NAT (SNAT)

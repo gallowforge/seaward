@@ -1,0 +1,22 @@
+name: listener-dual-stack
+about: A :: socket without IPV6_V6ONLY takes IPv4 too (ss prints it as *); a v6only one does not.
+about: A socket on one IPv6 address takes no IPv4 at all.
+--- listen
+host tcp :: 8080 dual
+host tcp :: 8081 v6only
+host tcp 2001:db8:1::10 8082
+host udp :: 5353 dual
+host udp :: 5354 v6only
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 8080 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8081 want:refused
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 8081 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 8082 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8082 want:refused
+eth1 2001:db8:2::77 2001:db8:2::1 tcp 8082 want:refused
+eth1 2001:db8:2::77 2001:db8:1::10 tcp 8082 want:open
+eth0 198.51.100.7 203.0.113.10 udp 5353 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 udp 5353 want:open
+eth0 198.51.100.7 203.0.113.10 udp 5354 want:refused
+eth0 2001:db8:99::7 2001:db8:1::10 udp 5354 want:open

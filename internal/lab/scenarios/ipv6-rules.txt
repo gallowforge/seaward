@@ -1,0 +1,39 @@
+name: ipv6-rules
+about: ip6tables rules govern IPv6 only, iptables rules IPv4 only. A machine locked down for
+about: IPv4 is wide open on IPv6 when ip6tables is empty, and the other way round.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+COMMIT
+--- ip6tables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -s 2001:db8:99::/64 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -j REJECT --reject-with icmp6-adm-prohibited
+-A INPUT -p tcp -m tcp --dport 81 -j REJECT --reject-with icmp6-port-unreachable
+-A INPUT -p tcp -m tcp --dport 82 -j REJECT --reject-with tcp-reset
+-A INPUT -p udp -m udp --dport 53 -j REJECT
+COMMIT
+--- listen
+host tcp :: 22 dual
+host tcp :: 80 dual
+host tcp :: 81 dual
+host tcp :: 82 dual
+host tcp :: 443 dual
+host udp :: 53 dual
+--- probes
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 22 want:open
+eth1 2001:db8:2::77 2001:db8:2::1 tcp 22 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 80 want:refused
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 81 want:refused
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 82 want:refused
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 443 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 udp 53 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 udp 53 want:silent

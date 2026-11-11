@@ -1,0 +1,19 @@
+name: dnat-to-loopback-route-localnet
+about: The same DNAT to 127.0.0.1 with net.ipv4.conf.eth0.route_localnet=1: the packet arriving
+about: on eth0 reaches the loopback listener; on eth1, where the setting is off, it is still dropped.
+sysctl: net.ipv4.conf.eth0.route_localnet=1
+--- iptables
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -p tcp -m tcp --dport 5432 -j DNAT --to-destination 127.0.0.1:5432
+-A PREROUTING -p tcp -m tcp --dport 5433 -j DNAT --to-destination 127.0.0.1:5433
+COMMIT
+--- listen
+host tcp 127.0.0.1 5432
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 5432 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 5433 want:refused
+eth1 192.0.2.50 10.20.0.1 tcp 5432 want:silent

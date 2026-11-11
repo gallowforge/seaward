@@ -1,0 +1,42 @@
+create blocklist hash:net family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0x5a2b1c3d
+add blocklist 198.51.100.0/24
+add blocklist 203.0.113.7
+create allow6 hash:net family inet6 hashsize 1024 maxelem 65536 bucketsize 12 initval 0x1c2d3e4f
+add allow6 2001:db8:1::/48
+create webports hash:ip,port family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0x1a2b3c4d
+add webports 192.0.2.10,tcp:80
+add webports 192.0.2.10,udp:443
+add webports 192.0.2.11,8080
+add webports 192.0.2.12,udp:53-60
+create f2b-sshd hash:ip family inet hashsize 1024 maxelem 65536 timeout 600 bucketsize 12 initval 0x2b3c4d5e
+add f2b-sshd 203.0.113.50 timeout 512
+create ifnets hash:net,iface family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0x3c4d5e6f
+add ifnets 10.0.0.0/8,eth1
+add ifnets 172.16.0.0/12,veth wildcard
+create marks hash:ip,mark family inet markmask 0xff hashsize 1024 maxelem 65536 bucketsize 12 initval 0x4d5e6f70
+add marks 192.0.2.1,0x110
+create macs hash:mac hashsize 1024 maxelem 65536 bucketsize 12 initval 0x5e6f7081
+add macs 00:11:22:33:44:55
+create lowports bitmap:port range 0-1024
+add lowports 22
+add lowports 80
+create carved hash:net family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0x6f708192
+add carved 10.0.0.0/8
+add carved 10.1.0.0/16 nomatch
+create combined list:set size 8
+add combined blocklist
+add combined allow6
+create mixed list:set size 8
+add mixed blocklist
+add mixed webports
+create noted hash:ip family inet hashsize 1024 maxelem 65536 comment bucketsize 12 initval 0x708192a3
+add noted 192.0.2.5 comment "home router"
+create pernet hash:ip family inet hashsize 1024 maxelem 65536 netmask 24 bucketsize 12 initval 0x8192a3b4
+add pernet 192.0.2.0
+create bip bitmap:ip range 192.0.2.0/24
+add bip 192.0.2.1
+add bip 192.0.2.2-192.0.2.9
+create triple hash:ip,port,net family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0x92a3b4c5
+add triple 192.0.2.1,tcp:22,198.51.100.0/24
+create pings hash:ip,port family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0xa3b4c5d6
+add pings 192.0.2.1,icmp:8/0

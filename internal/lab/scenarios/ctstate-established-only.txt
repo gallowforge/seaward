@@ -1,0 +1,19 @@
+name: ctstate-established-only
+about: Accepting only ESTABLISHED,RELATED lets no new connection in: a first packet is never
+about: established.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host udp 0.0.0.0 53
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 udp 53 want:silent

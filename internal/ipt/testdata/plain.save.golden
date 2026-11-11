@@ -1,0 +1,37 @@
+table ip filter (iptables)
+  chain INPUT: hook input, type filter, priority 0, policy drop
+    -A INPUT -i lo -j ACCEPT
+      match iifname in {"lo"}
+      accept
+    -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      match ctstate in {4, 2}
+      accept
+    -A INPUT -m conntrack --ctstate INVALID -j DROP
+      match ctstate in {1}
+      drop
+    -A INPUT -p icmp -m icmp --icmp-type 8 -m limit --limit 5/sec -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {8}
+      always: rate limit (-m limit): its burst lets a first packet through
+      accept
+    -A INPUT -s 203.0.113.0/24 -p tcp -m tcp --dport 22 -m comment --comment "ssh from the office" -j ACCEPT
+      match saddr in {203.0.113.0/24}
+      match l4proto in {6}
+      match dport in {22}
+      always: comment: ssh from the office
+      accept
+    -A INPUT -p tcp -m multiport --dports 80,443 -j ACCEPT
+      match l4proto in {6}
+      match dport in {80, 443}
+      accept
+    -A INPUT -p udp -m udp --dport 443 -j ACCEPT
+      match l4proto in {17}
+      match dport in {443}
+      accept
+    -A INPUT -p tcp -j REJECT --reject-with tcp-reset
+      match l4proto in {6}
+      reject
+    -A INPUT -j REJECT --reject-with icmp-host-prohibited
+      reject
+  chain FORWARD: hook forward, type filter, priority 0, policy drop
+  chain OUTPUT: hook output, type filter, priority 0, policy accept

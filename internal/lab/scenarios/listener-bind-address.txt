@@ -1,0 +1,21 @@
+name: listener-bind-address
+about: Where a socket is bound decides what reaches it: loopback only takes nothing from outside,
+about: a specific address takes only that address, the wildcard takes every address.
+--- listen
+host tcp 127.0.0.1 5432
+host tcp 203.0.113.10 8000
+host tcp 10.20.0.1 8001
+host tcp 0.0.0.0 22
+host udp 127.0.0.1 53
+host udp 10.20.0.1 5353
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 5432 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8000 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8001 want:refused
+eth0 198.51.100.7 10.20.0.1 tcp 8001 want:open
+eth0 198.51.100.7 10.20.0.1 tcp 8000 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 udp 53 want:refused
+eth1 192.0.2.50 10.20.0.1 udp 5353 want:open
+eth0 198.51.100.7 10.20.0.1 udp 5353 want:open

@@ -1,0 +1,39 @@
+name: mark-set-and-match
+about: MARK set in mangle PREROUTING is seen by filter. --set-mark replaces the whole mark;
+about: --set-xmark V/M clears the bits in M and then flips the bits in V; --mark V/M compares
+about: only the bits in M. 198.51.100.0/24 gets 0x101, then port 8080 turns it into 0x102.
+--- iptables
+*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -s 198.51.100.0/24 -j MARK --set-mark 0x101
+-A PREROUTING -p tcp -m tcp --dport 8080 -j MARK --set-xmark 0x2/0x3
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -m mark --mark 0x1/0xff -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -m mark --mark 0x101 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 443 -m mark --mark 0x1 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 8080 -m mark --mark 0x102 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 9000 -m mark ! --mark 0x0 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+host tcp 0.0.0.0 8080
+host tcp 0.0.0.0 9000
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 9000 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 8080 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 9000 want:silent

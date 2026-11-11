@@ -1,0 +1,21 @@
+name: input-policy-drop-single-accept
+about: INPUT policy DROP with one accept rule. Only the accepted port gets through;
+about: every other packet is dropped without a word, listener or not.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host udp 0.0.0.0 53
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 81 want:silent
+eth0 198.51.100.7 203.0.113.10 udp 53 want:silent
+eth0 198.51.100.7 203.0.113.10 udp 22 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open

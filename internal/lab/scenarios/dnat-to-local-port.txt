@@ -1,0 +1,35 @@
+name: dnat-to-local-port
+about: DNAT to one of this machine's own addresses delivers locally on the new port, also when
+about: the new address belongs to another interface. Filter sees the rewritten destination.
+--- iptables
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -d 203.0.113.10/32 -p tcp -m tcp --dport 2022 -j DNAT --to-destination 203.0.113.10:22
+-A PREROUTING -p tcp -m tcp --dport 2023 -j DNAT --to-destination 10.20.0.1:23
+-A PREROUTING -p udp -m udp --dport 5353 -j DNAT --to-destination 203.0.113.10:53
+-A PREROUTING -p tcp -m tcp --dport 2024 -j DNAT --to-destination 203.0.113.10:24
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -d 203.0.113.10/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -d 10.20.0.1/32 -p tcp -m tcp --dport 23 -j ACCEPT
+-A INPUT -p udp -m udp --dport 53 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 2024 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 10.20.0.1 23
+host udp 0.0.0.0 53
+host tcp 0.0.0.0 24
+host tcp 0.0.0.0 2024
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 2022 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 2023 want:open
+eth0 198.51.100.7 203.0.113.10 udp 5353 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 2024 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 2022 want:silent

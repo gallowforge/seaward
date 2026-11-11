@@ -1,0 +1,17 @@
+name: iface-match
+about: -i matches the interface a packet arrived on. Accepting eth1 says nothing about eth0,
+about: even for a packet sent to eth1's own address.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -i eth1 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+--- probes
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 23 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.7 10.20.0.1 tcp 22 want:silent

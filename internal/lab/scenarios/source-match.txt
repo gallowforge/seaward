@@ -1,0 +1,18 @@
+name: source-match
+about: -s matches the sender's address against a prefix. Only senders inside it get through.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -s 198.51.100.0/24 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 192.0.2.50/32 -p tcp -m tcp --dport 22 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.200 203.0.113.10 tcp 22 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth1 192.0.2.51 10.20.0.1 tcp 22 want:silent

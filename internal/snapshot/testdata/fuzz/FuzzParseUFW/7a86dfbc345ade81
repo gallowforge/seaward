@@ -1,0 +1,2 @@
+go test fuzz v1
+string("To Action\n0\von 0 ALLOW")

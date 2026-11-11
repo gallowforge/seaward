@@ -1,0 +1,17 @@
+name: ctstate-invalid
+about: A clean SYN is not INVALID, so dropping INVALID first does not touch new connections.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m conntrack --ctstate INVALID -j DROP
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -m conntrack ! --ctstate INVALID -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open

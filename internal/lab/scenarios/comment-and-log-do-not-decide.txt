@@ -1,0 +1,17 @@
+name: comment-and-log-do-not-decide
+about: -m comment always matches, and LOG and NFLOG record a packet without deciding anything.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -j LOG --log-prefix "lab: "
+-A INPUT -p tcp -m tcp --dport 22 -m comment --comment "ssh from anywhere" -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -j NFLOG --nflog-group 5
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent

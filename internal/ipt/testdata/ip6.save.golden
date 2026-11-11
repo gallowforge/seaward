@@ -1,0 +1,77 @@
+table ip6 raw (iptables)
+  chain PREROUTING: hook prerouting, type filter, priority -300, policy accept
+    -A PREROUTING -m rpfilter --invert -j DROP
+      match rpf-ok in {0}
+      drop
+  chain OUTPUT: hook output, type filter, priority -300, policy accept
+table ip6 filter (iptables)
+  chain INPUT: hook input, type filter, priority 0, policy drop
+    -A INPUT -i lo -j ACCEPT
+      match iifname in {"lo"}
+      accept
+    -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      match ctstate in {4, 2}
+      accept
+    -A INPUT -m conntrack --ctstate INVALID -j DROP
+      match ctstate in {1}
+      drop
+    -A INPUT -p ipv6-icmp -m icmp6 --icmpv6-type 135 -m hl --hl-eq 255 -j ACCEPT
+      match l4proto in {58}
+      match icmpv6-type in {135}
+      unknown: the hl match (-m hl) looks at the packet's hop limit, which seaward does not model
+      accept
+    -A INPUT -p ipv6-icmp -m icmp6 --icmpv6-type 136 -m hl --hl-eq 255 -j ACCEPT
+      match l4proto in {58}
+      match icmpv6-type in {136}
+      unknown: the hl match (-m hl) looks at the packet's hop limit, which seaward does not model
+      accept
+    -A INPUT -p ipv6-icmp -m icmp6 --icmpv6-type 128 -j ACCEPT
+      match l4proto in {58}
+      match icmpv6-type in {128}
+      accept
+    -A INPUT -s fe80::/10 -d fe80::/10 -p udp -m udp --sport 547 --dport 546 -j ACCEPT
+      match saddr in {fe80::/10}
+      match daddr in {fe80::/10}
+      match l4proto in {17}
+      match sport in {547}
+      match dport in {546}
+      accept
+    -A INPUT -s 2001:db8:1::/48 -p tcp -m tcp --dport 22 -j ACCEPT
+      match saddr in {2001:db8:1::/48}
+      match l4proto in {6}
+      match dport in {22}
+      accept
+    -A INPUT -d 2001:db8::10/128 -j web
+      match daddr in {2001:db8::10/128}
+      jump web
+    -A INPUT -j REJECT --reject-with icmp6-adm-prohibited
+      reject
+  chain FORWARD: hook forward, type filter, priority 0, policy drop
+  chain OUTPUT: hook output, type filter, priority 0, policy accept
+  chain web
+    -A web -p tcp -m multiport --dports 80,443 -j ACCEPT
+      match l4proto in {6}
+      match dport in {80, 443}
+      accept
+    -A web -p tcp -m tcp --dport 8443 -m conntrack --ctstate DNAT -j ACCEPT
+      match l4proto in {6}
+      match dport in {8443}
+      match ctstatus-dnat in {1}
+      accept
+    -A web -j RETURN
+      return
+table ip6 nat (iptables)
+  chain PREROUTING: hook prerouting, type nat, priority -100, policy accept
+    -A PREROUTING -d 2001:db8::10/128 -p tcp -m tcp --dport 8443 -j DNAT --to-destination [2001:db8::2]:443
+      match daddr in {2001:db8::10/128}
+      match l4proto in {6}
+      match dport in {8443}
+      dnat addr 2001:db8::2 port 443
+    -A PREROUTING -d 2001:db8::10/128 -p tcp -m tcp --dport 2222 -j REDIRECT --to-ports 22
+      match daddr in {2001:db8::10/128}
+      match l4proto in {6}
+      match dport in {2222}
+      redirect port 22
+  chain INPUT: hook input, type nat, priority 100, policy accept
+  chain OUTPUT: hook output, type nat, priority -100, policy accept
+  chain POSTROUTING: hook postrouting, type nat, priority 100, policy accept

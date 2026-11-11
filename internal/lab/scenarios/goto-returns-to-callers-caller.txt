@@ -1,0 +1,31 @@
+name: goto-returns-to-callers-caller
+about: -g (goto) does not record where it came from: a RETURN, or falling off the end, after a
+about: goto goes back to the chain that jumped to the goto's chain. From A, -g B then RETURN
+about: lands in INPUT, not in A. A goto straight from INPUT that returns applies INPUT's policy.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+:A - [0:0]
+:B - [0:0]
+:C - [0:0]
+-A INPUT -p tcp -m tcp --dport 443 -g C
+-A INPUT -j A
+-A INPUT -j REJECT --reject-with icmp-port-unreachable
+-A A -g B
+-A A -j ACCEPT
+-A B -p tcp -m tcp --dport 22 -j RETURN
+-A B -p tcp -m tcp --dport 80 -j ACCEPT
+-A C -j RETURN
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+host tcp 0.0.0.0 8080
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:silent

@@ -1,0 +1,29 @@
+name: nft-ct-state-iifname
+about: ct state and iifname in nft: a first packet is new, never established; "eth*" is a prefix
+about: match on the interface name.
+--- nft
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state invalid drop
+		iifname "eth1" accept
+		iifname "eth*" tcp dport 22 accept
+		ct state new tcp dport 8080 accept
+		ct state established tcp dport 9090 accept
+		iifname != "eth0" tcp dport 7070 accept
+	}
+}
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 7070
+host tcp 0.0.0.0 8080
+host tcp 0.0.0.0 9090
+--- probes
+eth1 192.0.2.50 10.20.0.1 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 9090 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 7070 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 7070 want:open

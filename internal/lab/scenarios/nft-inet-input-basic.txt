@@ -1,0 +1,27 @@
+name: nft-inet-input-basic
+about: One inet table covers IPv4 and IPv6 at once: an input chain with policy drop, the usual
+about: established accept, a few accepts and a reject.
+--- nft
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state established,related accept
+		iifname "lo" accept
+		tcp dport 22 accept
+		tcp dport 80 reject
+		udp dport 53 accept
+	}
+}
+--- listen
+host tcp :: 22 dual
+host tcp :: 80 dual
+host tcp :: 443 dual
+host udp :: 53 dual
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:refused
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 80 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 udp 53 want:open
+eth0 198.51.100.7 203.0.113.10 udp 54 want:silent

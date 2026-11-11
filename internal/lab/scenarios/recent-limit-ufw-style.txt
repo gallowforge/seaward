@@ -1,0 +1,24 @@
+name: recent-limit-ufw-style
+about: ufw's "limit": -m recent --set records the sender, --update --hitcount 6 drops a sender
+about: seen six times. A first packet always passes, and --rcheck on a list nobody added to never
+about: matches.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -m recent --set --name DEFAULT --mask 255.255.255.255 --rsource
+-A INPUT -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -m recent --update --seconds 30 --hitcount 6 --name DEFAULT --mask 255.255.255.255 --rsource -j DROP
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -m recent --rcheck --seconds 60 --name BLOCKED --rsource -j DROP
+-A INPUT -p tcp -m tcp --dport 80 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 443 -m recent ! --rcheck --name BLOCKED --rsource -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:open

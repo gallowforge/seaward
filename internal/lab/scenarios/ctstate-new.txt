@@ -1,0 +1,19 @@
+name: ctstate-new
+about: The first packet of a connection is in state NEW, through -m conntrack and the older -m state.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -j ACCEPT
+-A INPUT -p udp -m udp --dport 53 -m state --state NEW -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -m conntrack ! --ctstate NEW -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host udp 0.0.0.0 53
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 udp 53 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent

@@ -1,0 +1,15 @@
+name: ipv6-empty-v4-locked
+about: Only iptables is written; ip6tables is empty. Every IPv6 port with a listener is open.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+COMMIT
+--- listen
+host tcp :: 5432 dual
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 5432 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 5432 want:open
+eth0 2001:db8:1::77 2001:db8:1::10 tcp 5432 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 5433 want:refused

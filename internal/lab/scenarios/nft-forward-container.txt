@@ -1,0 +1,41 @@
+name: nft-forward-container
+about: A container published with native nft: dnat in prerouting, a forward chain with policy drop
+about: that accepts what was rewritten (ct status dnat). The input chain never sees the packet.
+container: yes
+publish: 0.0.0.0:8080->80/tcp
+--- nft
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		fib daddr type local tcp dport 8080 dnat to 172.17.0.2:80
+	}
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		ip saddr 172.17.0.0/16 oifname != "docker0" masquerade
+	}
+}
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state established,related accept
+		tcp dport 22 accept
+	}
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		ct state established,related accept
+		iifname "docker0" accept
+		ct status dnat accept
+	}
+}
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 8081
+ctr tcp 0.0.0.0 80
+ctr tcp 0.0.0.0 81
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 8080 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8081 want:silent
+eth0 198.51.100.7 172.17.0.2 tcp 80 want:silent
+eth0 198.51.100.7 172.17.0.2 tcp 81 want:silent

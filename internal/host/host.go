@@ -17,8 +17,11 @@ type Host struct {
 	// Listeners are sockets waiting for connections or datagrams, in the host's own network
 	// namespace (Netns "") and, where it could be read, inside each container (Netns = container ID).
 	Listeners []Listener
-	Docker    *Docker
-	Frontend  *Frontend
+	// NoListenerData is true when the snapshot has no list of listening sockets at all, so
+	// "nothing is listening" cannot be said.
+	NoListenerData bool
+	Docker         *Docker
+	Frontend       *Frontend
 	// Notes are things the snapshot does not contain and why, in plain sentences.
 	Notes []string
 }
@@ -72,6 +75,9 @@ type Container struct {
 	HostNetwork bool
 	Networks    []ContainerNet
 	Ports       []Published
+	// ListenersKnown is true when the snapshot holds the container's own listening sockets (even
+	// if there are none), so "nothing is listening in there" can be told from "could not look".
+	ListenersKnown bool
 }
 
 // ContainerNet is a container's address on one Docker network.

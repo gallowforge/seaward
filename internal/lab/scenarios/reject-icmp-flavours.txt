@@ -1,0 +1,30 @@
+name: reject-icmp-flavours
+about: Every ICMP flavour of REJECT is an answer the sender hears, so each counts as refused:
+about: host-prohibited (the CentOS default), admin-prohibited, net-unreachable, host-unreachable,
+about: for TCP and for UDP.
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 1001 -j REJECT --reject-with icmp-host-prohibited
+-A INPUT -p tcp -m tcp --dport 1002 -j REJECT --reject-with icmp-admin-prohibited
+-A INPUT -p tcp -m tcp --dport 1003 -j REJECT --reject-with icmp-net-unreachable
+-A INPUT -p tcp -m tcp --dport 1004 -j REJECT --reject-with icmp-host-unreachable
+-A INPUT -p udp -m udp --dport 1001 -j REJECT --reject-with icmp-host-prohibited
+-A INPUT -p udp -m udp --dport 1003 -j REJECT --reject-with icmp-net-unreachable
+COMMIT
+--- listen
+host tcp 0.0.0.0 1001
+host tcp 0.0.0.0 1002
+host tcp 0.0.0.0 1003
+host tcp 0.0.0.0 1004
+host udp 0.0.0.0 1001
+host udp 0.0.0.0 1003
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 1001 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 1002 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 1003 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 1004 want:refused
+eth0 198.51.100.7 203.0.113.10 udp 1001 want:refused
+eth0 198.51.100.7 203.0.113.10 udp 1003 want:refused

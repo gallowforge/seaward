@@ -1,0 +1,41 @@
+name: nft-verdict-map
+about: A verdict map picks the verdict by port: accept, drop, jump or goto. After a jump the walk
+about: comes back to the next rule; after a goto from the base chain, falling off the end means
+about: the base chain's policy. An anonymous map works the same way.
+--- nft
+table inet filter {
+	map ports {
+		type inet_service : verdict
+		elements = { 22 : accept, 80 : drop, 443 : jump web, 8080 : goto web }
+	}
+	chain web {
+		ip saddr 198.51.100.0/24 accept
+		ip saddr 192.0.2.0/24 reject with tcp reset
+	}
+	chain input {
+		type filter hook input priority filter; policy drop;
+		tcp dport vmap @ports
+		udp dport vmap { 53 : accept, 123 : drop }
+		tcp dport { 443, 8080 } reject
+		accept
+	}
+}
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+host tcp 0.0.0.0 8080
+host tcp 0.0.0.0 9000
+host udp 0.0.0.0 53
+host udp 0.0.0.0 123
+--- probes
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 443 want:refused
+eth1 192.0.2.50 10.20.0.1 tcp 443 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 8080 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 9000 want:open
+eth0 203.0.113.77 203.0.113.10 udp 53 want:open
+eth0 203.0.113.77 203.0.113.10 udp 123 want:silent

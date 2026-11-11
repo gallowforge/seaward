@@ -1,0 +1,19 @@
+name: user-chain-return
+about: RETURN in a user chain goes back to the rule after the jump in the calling chain.
+about: 198.51.100.7 returns early and meets the reject; others are accepted inside the chain.
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:SVC - [0:0]
+-A INPUT -p tcp -j SVC
+-A INPUT -p tcp -m tcp --dport 22 -j REJECT --reject-with tcp-reset
+-A SVC -s 198.51.100.7/32 -j RETURN
+-A SVC -p tcp -m tcp --dport 22 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:refused
+eth0 198.51.100.200 203.0.113.10 tcp 22 want:open

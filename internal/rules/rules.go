@@ -222,7 +222,7 @@ type CopyMark struct {
 }
 
 // Noop is a statement with no effect on whether a new connection gets through: a counter, a log
-// line, notrack, masquerade and source NAT, TCPMSS clamping.
+// line, masquerade and source NAT, TCPMSS clamping.
 type Noop struct {
 	What string
 }
@@ -255,6 +255,8 @@ func (*UnknownStmt) expr() {}
 type Set struct {
 	Name  string // empty for an inline set
 	Elems []Elem
+	// Verdicts is used by named verdict maps only: one verdict per element.
+	Verdicts []Verdict
 	// Dynamic sets are filled by the rules themselves at run time; the elements are what was in
 	// the set when the snapshot was taken.
 	Dynamic bool

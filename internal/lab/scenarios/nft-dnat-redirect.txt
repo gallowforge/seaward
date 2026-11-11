@@ -1,0 +1,31 @@
+name: nft-dnat-redirect
+about: A nat prerouting chain with dnat to a local port and redirect: the filter input chain sees
+about: the rewritten port. nft needs no rule for the reply direction.
+--- nft
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		tcp dport 8080 dnat to 203.0.113.10:22
+		tcp dport 2200 redirect to :22
+		udp dport 5353 redirect to :53
+	}
+}
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		tcp dport 22 accept
+		udp dport 53 accept
+		tcp dport 8080 accept
+	}
+}
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 8080
+host udp 0.0.0.0 53
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 2200 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 2200 want:open
+eth0 198.51.100.7 203.0.113.10 udp 5353 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 2201 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 2200 want:silent

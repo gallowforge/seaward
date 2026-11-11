@@ -1,0 +1,25 @@
+name: mangle-drop
+about: mangle chains can drop too: PREROUTING before routing, INPUT before filter INPUT.
+--- iptables
+*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -s 198.51.100.7/32 -p tcp -m tcp --dport 22 -j DROP
+-A INPUT -p tcp -m tcp --dport 80 -j DROP
+COMMIT
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.200 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.200 203.0.113.10 tcp 80 want:silent

@@ -1,0 +1,36 @@
+name: nft-jump-goto-return
+about: return in a chain reached by jump goes back to the next rule of the caller; return in a
+about: base chain applies its policy (here accept), so the drop below it never runs.
+--- nft
+table ip filter {
+	chain a {
+		tcp dport 22 return
+		tcp dport 23 drop
+		jump b
+	}
+	chain b {
+		tcp dport 80 accept
+		return
+		tcp dport 81 accept
+	}
+	chain input {
+		type filter hook input priority filter; policy accept;
+		tcp dport 443 return
+		jump a
+		tcp dport 22 reject
+		tcp dport 81 drop
+		tcp dport 443 drop
+	}
+}
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 23
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 81
+host tcp 0.0.0.0 443
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 23 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 81 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:open

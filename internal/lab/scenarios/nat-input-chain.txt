@@ -1,0 +1,27 @@
+name: nat-input-chain
+about: The nat INPUT chain runs after filter INPUT (priority 100 against 0) and cannot stop a
+about: packet: SNAT there only rewrites the source. A drop in filter INPUT wins before it.
+--- iptables
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -j SNAT --to-source 203.0.113.99
+-A INPUT -p tcp -m tcp --dport 80 -j SNAT --to-source 203.0.113.99
+-A INPUT -p tcp -m tcp --dport 443 -j ACCEPT
+COMMIT
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 80 -j DROP
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:open

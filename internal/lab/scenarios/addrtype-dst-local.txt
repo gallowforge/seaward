@@ -1,0 +1,24 @@
+name: addrtype-dst-local
+about: -m addrtype --dst-type LOCAL is true for any address of this machine, whichever interface
+about: carries it. With --limit-iface-in it only counts addresses of the arriving interface, so
+about: eth1's address reached through eth0 is not LOCAL there.
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -m addrtype --dst-type LOCAL -j DROP
+-A INPUT -p tcp -m tcp --dport 80 -m addrtype --dst-type LOCAL --limit-iface-in -j DROP
+-A INPUT -p tcp -m tcp --dport 443 -m addrtype ! --dst-type LOCAL -j DROP
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.7 10.20.0.1 tcp 22 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 10.20.0.1 tcp 80 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:open

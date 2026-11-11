@@ -1,0 +1,24 @@
+name: nft-ip-and-ip6-families
+about: A table of family ip sees only IPv4 and a table of family ip6 only IPv6, even on the same
+about: hook with the same rules.
+--- nft
+table ip v4 {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		tcp dport 22 drop
+	}
+}
+table ip6 v6 {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		tcp dport 22 accept
+	}
+}
+--- listen
+host tcp :: 22 dual
+host tcp :: 80 dual
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 22 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open

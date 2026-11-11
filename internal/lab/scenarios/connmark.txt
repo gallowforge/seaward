@@ -1,0 +1,28 @@
+name: connmark
+about: CONNMARK --set-mark marks the connection; --restore-mark copies it onto the packet, where
+about: -m mark sees it. -m connmark reads the connection's mark directly.
+--- iptables
+*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -s 198.51.100.7/32 -j CONNMARK --set-xmark 0x5/0xffffffff
+-A PREROUTING -j CONNMARK --restore-mark --nfmask 0xffffffff --ctmask 0xffffffff
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -m mark --mark 0x5 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -m connmark --mark 0x5 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.200 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.200 203.0.113.10 tcp 80 want:silent

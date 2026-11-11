@@ -1,0 +1,16 @@
+name: empty-ruleset
+about: No rules at all. Every packet is accepted; only the listeners decide.
+about: A listening port is open, a port with nothing behind it answers with a reset.
+--- listen
+host tcp 0.0.0.0 22
+host udp 0.0.0.0 53
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 23 want:refused
+eth0 198.51.100.7 203.0.113.10 udp 53 want:open
+eth0 198.51.100.7 203.0.113.10 udp 54 want:refused
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 22 want:refused
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth1 10.20.0.77 10.20.0.1 udp 53 want:open
+eth0 198.51.100.7 10.20.0.1 tcp 22 want:open

@@ -1,0 +1,21 @@
+name: reject-established-first-packet-answered
+about: A rule that rejects ESTABLISHED packets never sees the first packet (the SYN is NEW), so the
+about: SYN-ACK goes out and the port counts as open; only the client's following ACK is refused.
+about: The lab and the engine both judge the first packet.
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 22 -m conntrack --ctstate ESTABLISHED -j REJECT --reject-with icmp-host-prohibited
+-A INPUT -p tcp -m tcp --dport 80 -m conntrack --ctstate ESTABLISHED -j REJECT --reject-with tcp-reset
+-A INPUT -p tcp -m tcp --dport 443 -m conntrack --ctstate NEW -j REJECT --reject-with tcp-reset
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:refused

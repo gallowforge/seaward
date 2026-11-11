@@ -1,0 +1,32 @@
+set allow6 dims net dynamic=false incomplete=false
+  {2001:db8:1::/48}
+set bip dims ip dynamic=false incomplete=false
+  {192.0.2.1/32, 192.0.2.2-192.0.2.9}
+set blocklist dims net dynamic=false incomplete=false
+  {198.51.100.0/24, 203.0.113.7/32}
+set carved dims net dynamic=false incomplete=true why="the set has nomatch elements, which carve exceptions out of it that seaward does not model"
+  {}
+set combined dims net dynamic=false incomplete=false
+  {198.51.100.0/24, 203.0.113.7/32, 2001:db8:1::/48}
+set f2b-sshd dims ip dynamic=true incomplete=false
+  {203.0.113.50/32}
+set ifnets dims net,iface dynamic=false incomplete=false
+  {(10.0.0.0/8 . "eth1"), (172.16.0.0/12 . "veth"*)}
+set lowports dims port-only dynamic=false incomplete=false
+  {22, 80}
+set macs dims mac dynamic=false incomplete=true why="the ipset holds hardware (MAC) addresses, which seaward does not model"
+  {}
+set marks dims ip,mark/0xff dynamic=false incomplete=false
+  {(192.0.2.1/32 . 16)}
+set mixed dims net dynamic=false incomplete=true why="the list holds sets of different types, which seaward cannot combine"
+  {}
+set noted dims ip dynamic=false incomplete=false
+  {192.0.2.5/32}
+set pernet dims ip dynamic=false incomplete=false
+  {192.0.2.0/24}
+set pings dims ip,port dynamic=false incomplete=true why="the set holds ICMP types, which seaward does not model in a set"
+  {}
+set triple dims ip,port,net dynamic=false incomplete=false
+  {(192.0.2.1/32 . 6 . 22 . 198.51.100.0/24)}
+set webports dims ip,port dynamic=false incomplete=false
+  {(192.0.2.10/32 . 6 . 80), (192.0.2.10/32 . 17 . 443), (192.0.2.11/32 . 6 . 8080), (192.0.2.12/32 . 17 . 53-60)}

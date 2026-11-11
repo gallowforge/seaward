@@ -1,0 +1,19 @@
+name: udp-open-closed-dropped
+about: The three UDP fates: a listener echoes, a closed port sends ICMP port unreachable,
+about: a dropped datagram gets no answer at all.
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p udp -m udp --dport 123 -j DROP
+-A INPUT -p udp -m udp --dport 53 -s 198.51.100.200/32 -j DROP
+COMMIT
+--- listen
+host udp 0.0.0.0 53
+host udp 0.0.0.0 123
+--- probes
+eth0 198.51.100.7 203.0.113.10 udp 53 want:open
+eth0 198.51.100.7 203.0.113.10 udp 54 want:refused
+eth0 198.51.100.7 203.0.113.10 udp 123 want:silent
+eth0 198.51.100.200 203.0.113.10 udp 53 want:silent

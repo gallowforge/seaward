@@ -1,0 +1,31 @@
+name: notrack-not-new
+about: NOTRACK in raw takes a packet out of connection tracking: its state is UNTRACKED, not NEW,
+about: so an accept for --ctstate NEW passes it by. --ctstate UNTRACKED matches it. CT --notrack
+about: is the same thing written the newer way.
+--- iptables
+*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A PREROUTING -p tcp -m tcp --dport 22 -j NOTRACK
+-A PREROUTING -p tcp -m tcp --dport 23 -j CT --notrack
+-A PREROUTING -p udp -m udp --dport 53 -j NOTRACK
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m tcp --dport 23 -m conntrack --ctstate UNTRACKED -j ACCEPT
+-A INPUT -m conntrack --ctstate NEW -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 23
+host tcp 0.0.0.0 80
+host udp 0.0.0.0 53
+host udp 0.0.0.0 123
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 23 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 udp 53 want:silent
+eth0 198.51.100.7 203.0.113.10 udp 123 want:open

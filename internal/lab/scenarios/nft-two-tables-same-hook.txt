@@ -1,0 +1,38 @@
+name: nft-two-tables-same-hook
+about: Several base chains on the input hook run in priority order. An accept only ends its own
+about: chain, and the next one still runs; a drop anywhere is final.
+--- nft
+table ip early {
+	chain input {
+		type filter hook input priority -10; policy accept;
+		tcp dport 443 drop
+		tcp dport 8080 accept
+	}
+}
+table inet a {
+	chain input {
+		type filter hook input priority 0; policy accept;
+		tcp dport 22 accept
+		tcp dport 8080 drop
+	}
+}
+table inet b {
+	chain input {
+		type filter hook input priority 10; policy accept;
+		tcp dport 22 drop
+		tcp dport 80 reject with tcp reset
+	}
+}
+--- listen
+host tcp :: 22 dual
+host tcp :: 80 dual
+host tcp :: 443 dual
+host tcp :: 8080 dual
+host tcp :: 9000 dual
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 443 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 9000 want:open

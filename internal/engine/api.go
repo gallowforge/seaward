@@ -63,6 +63,8 @@ type Result struct {
 	// Unknowns lists what an Undecided result hangs on, or what was uncertain on the way to a
 	// result every branch agreed on.
 	Unknowns []string
+	// Possible lists the ways an Undecided probe can end, depending on the unknowns.
+	Possible []Class
 }
 
 // StepKind says what a step of the path is.
@@ -70,6 +72,7 @@ type StepKind string
 
 const (
 	StepRule    StepKind = "rule"    // a rule matched and did something
+	StepJump    StepKind = "jump"    // a rule sent the packet into another chain
 	StepPolicy  StepKind = "policy"  // the end of a base chain: its policy applied
 	StepRoute   StepKind = "route"   // the routing decision
 	StepDeliver StepKind = "deliver" // the socket lookup or the hand-over to another machine

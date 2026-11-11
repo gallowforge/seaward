@@ -1,0 +1,18 @@
+name: source-negated
+about: ! -s drops everyone outside the prefix: 198.51.100.7 is inside the lower /25,
+about: 198.51.100.200 is not.
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT ! -s 198.51.100.0/25 -p tcp -m tcp --dport 22 -j DROP
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.200 203.0.113.10 tcp 22 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.200 203.0.113.10 tcp 80 want:open

@@ -1,0 +1,16 @@
+name: dnat-to-loopback-no-route-localnet
+about: DNAT to 127.0.0.1 from outside: without route_localnet the kernel treats the rewritten
+about: packet as a martian and drops it silently, though the filter accepts and a program listens.
+--- iptables
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -p tcp -m tcp --dport 5432 -j DNAT --to-destination 127.0.0.1:5432
+COMMIT
+--- listen
+host tcp 127.0.0.1 5432
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 5432 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 5432 want:silent

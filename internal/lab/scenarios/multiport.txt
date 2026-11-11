@@ -1,0 +1,28 @@
+name: multiport
+about: -m multiport --dports takes a list with ranges inside it; ! negates the whole list.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m multiport --dports 22,80,8000:8100 -j ACCEPT
+-A INPUT -p udp -m multiport ! --dports 53,123 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+host tcp 0.0.0.0 8050
+host tcp 0.0.0.0 8101
+host udp 0.0.0.0 53
+host udp 0.0.0.0 5353
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8050 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8100 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8101 want:silent
+eth0 198.51.100.7 203.0.113.10 udp 53 want:silent
+eth0 198.51.100.7 203.0.113.10 udp 5353 want:open
+eth0 198.51.100.7 203.0.113.10 udp 5354 want:refused

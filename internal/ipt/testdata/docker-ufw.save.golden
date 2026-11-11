@@ -1,0 +1,396 @@
+table ip raw (iptables)
+  chain PREROUTING: hook prerouting, type filter, priority -300, policy accept
+    -A PREROUTING -d 172.17.0.2/32 ! -i docker0 -j DROP
+      match daddr in {172.17.0.2/32}
+      match iifname not in {"docker0"}
+      drop
+    -A PREROUTING -d 172.17.0.3/32 ! -i docker0 -j DROP
+      match daddr in {172.17.0.3/32}
+      match iifname not in {"docker0"}
+      drop
+    -A PREROUTING -d 172.18.0.2/32 ! -i br-5f1c0e2a9d3b -j DROP
+      match daddr in {172.18.0.2/32}
+      match iifname not in {"br-5f1c0e2a9d3b"}
+      drop
+    -A PREROUTING -d 127.0.0.1/32 ! -i lo -p tcp -m tcp --dport 5432 -j DROP
+      match daddr in {127.0.0.1/32}
+      match iifname not in {"lo"}
+      match l4proto in {6}
+      match dport in {5432}
+      drop
+  chain OUTPUT: hook output, type filter, priority -300, policy accept
+table ip filter (iptables)
+  chain INPUT: hook input, type filter, priority 0, policy drop
+    -A INPUT -j ufw-before-logging-input
+      jump ufw-before-logging-input
+    -A INPUT -j ufw-before-input
+      jump ufw-before-input
+    -A INPUT -j ufw-after-input
+      jump ufw-after-input
+    -A INPUT -j ufw-after-logging-input
+      jump ufw-after-logging-input
+    -A INPUT -j ufw-reject-input
+      jump ufw-reject-input
+    -A INPUT -j ufw-track-input
+      jump ufw-track-input
+  chain FORWARD: hook forward, type filter, priority 0, policy drop
+    -A FORWARD -j DOCKER-USER
+      jump DOCKER-USER
+    -A FORWARD -j DOCKER-FORWARD
+      jump DOCKER-FORWARD
+    -A FORWARD -j ufw-before-logging-forward
+      jump ufw-before-logging-forward
+    -A FORWARD -j ufw-before-forward
+      jump ufw-before-forward
+    -A FORWARD -j ufw-after-forward
+      jump ufw-after-forward
+    -A FORWARD -j ufw-after-logging-forward
+      jump ufw-after-logging-forward
+    -A FORWARD -j ufw-reject-forward
+      jump ufw-reject-forward
+    -A FORWARD -j ufw-track-forward
+      jump ufw-track-forward
+  chain OUTPUT: hook output, type filter, priority 0, policy accept
+    -A OUTPUT -j ufw-before-logging-output
+      jump ufw-before-logging-output
+    -A OUTPUT -j ufw-before-output
+      jump ufw-before-output
+    -A OUTPUT -j ufw-after-output
+      jump ufw-after-output
+    -A OUTPUT -j ufw-after-logging-output
+      jump ufw-after-logging-output
+    -A OUTPUT -j ufw-reject-output
+      jump ufw-reject-output
+    -A OUTPUT -j ufw-track-output
+      jump ufw-track-output
+  chain DOCKER
+    -A DOCKER -d 172.17.0.2/32 ! -i docker0 -o docker0 -p tcp -m tcp --dport 80 -j ACCEPT
+      match daddr in {172.17.0.2/32}
+      match iifname not in {"docker0"}
+      match oifname in {"docker0"}
+      match l4proto in {6}
+      match dport in {80}
+      accept
+    -A DOCKER -d 172.17.0.3/32 ! -i docker0 -o docker0 -p tcp -m tcp --dport 5432 -j ACCEPT
+      match daddr in {172.17.0.3/32}
+      match iifname not in {"docker0"}
+      match oifname in {"docker0"}
+      match l4proto in {6}
+      match dport in {5432}
+      accept
+    -A DOCKER -d 172.18.0.2/32 ! -i br-5f1c0e2a9d3b -o br-5f1c0e2a9d3b -p tcp -m tcp --dport 443 -j ACCEPT
+      match daddr in {172.18.0.2/32}
+      match iifname not in {"br-5f1c0e2a9d3b"}
+      match oifname in {"br-5f1c0e2a9d3b"}
+      match l4proto in {6}
+      match dport in {443}
+      accept
+    -A DOCKER -d 172.18.0.2/32 ! -i br-5f1c0e2a9d3b -o br-5f1c0e2a9d3b -p udp -m udp --dport 443 -j ACCEPT
+      match daddr in {172.18.0.2/32}
+      match iifname not in {"br-5f1c0e2a9d3b"}
+      match oifname in {"br-5f1c0e2a9d3b"}
+      match l4proto in {17}
+      match dport in {443}
+      accept
+    -A DOCKER ! -i br-5f1c0e2a9d3b -o br-5f1c0e2a9d3b -j DROP
+      match iifname not in {"br-5f1c0e2a9d3b"}
+      match oifname in {"br-5f1c0e2a9d3b"}
+      drop
+    -A DOCKER ! -i docker0 -o docker0 -j DROP
+      match iifname not in {"docker0"}
+      match oifname in {"docker0"}
+      drop
+  chain DOCKER-BRIDGE
+    -A DOCKER-BRIDGE -o br-5f1c0e2a9d3b -j DOCKER
+      match oifname in {"br-5f1c0e2a9d3b"}
+      jump DOCKER
+    -A DOCKER-BRIDGE -o docker0 -j DOCKER
+      match oifname in {"docker0"}
+      jump DOCKER
+  chain DOCKER-CT
+    -A DOCKER-CT -o br-5f1c0e2a9d3b -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      match oifname in {"br-5f1c0e2a9d3b"}
+      match ctstate in {4, 2}
+      accept
+    -A DOCKER-CT -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      match oifname in {"docker0"}
+      match ctstate in {4, 2}
+      accept
+  chain DOCKER-FORWARD
+    -A DOCKER-FORWARD -j DOCKER-CT
+      jump DOCKER-CT
+    -A DOCKER-FORWARD -j DOCKER-INTERNAL
+      jump DOCKER-INTERNAL
+    -A DOCKER-FORWARD -j DOCKER-BRIDGE
+      jump DOCKER-BRIDGE
+    -A DOCKER-FORWARD -i br-5f1c0e2a9d3b -j ACCEPT
+      match iifname in {"br-5f1c0e2a9d3b"}
+      accept
+    -A DOCKER-FORWARD -i docker0 -j ACCEPT
+      match iifname in {"docker0"}
+      accept
+  chain DOCKER-INTERNAL
+  chain DOCKER-USER
+    -A DOCKER-USER -i eth0 -p tcp -m tcp --dport 5432 -j DROP
+      match iifname in {"eth0"}
+      match l4proto in {6}
+      match dport in {5432}
+      drop
+  chain ufw-after-forward
+  chain ufw-after-input
+    -A ufw-after-input -p udp -m udp --dport 137 -j ufw-skip-to-policy-input
+      match l4proto in {17}
+      match dport in {137}
+      jump ufw-skip-to-policy-input
+    -A ufw-after-input -p udp -m udp --dport 138 -j ufw-skip-to-policy-input
+      match l4proto in {17}
+      match dport in {138}
+      jump ufw-skip-to-policy-input
+    -A ufw-after-input -p tcp -m tcp --dport 139 -j ufw-skip-to-policy-input
+      match l4proto in {6}
+      match dport in {139}
+      jump ufw-skip-to-policy-input
+    -A ufw-after-input -p tcp -m tcp --dport 445 -j ufw-skip-to-policy-input
+      match l4proto in {6}
+      match dport in {445}
+      jump ufw-skip-to-policy-input
+    -A ufw-after-input -p udp -m udp --dport 67 -j ufw-skip-to-policy-input
+      match l4proto in {17}
+      match dport in {67}
+      jump ufw-skip-to-policy-input
+    -A ufw-after-input -p udp -m udp --dport 68 -j ufw-skip-to-policy-input
+      match l4proto in {17}
+      match dport in {68}
+      jump ufw-skip-to-policy-input
+    -A ufw-after-input -m addrtype --dst-type BROADCAST -j ufw-skip-to-policy-input
+      match daddr-type in {3}
+      jump ufw-skip-to-policy-input
+  chain ufw-after-logging-forward
+    -A ufw-after-logging-forward -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[UFW BLOCK] "
+      always: rate limit (-m limit): its burst lets a first packet through
+      noop: log (LOG)
+  chain ufw-after-logging-input
+    -A ufw-after-logging-input -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[UFW BLOCK] "
+      always: rate limit (-m limit): its burst lets a first packet through
+      noop: log (LOG)
+  chain ufw-after-logging-output
+  chain ufw-after-output
+  chain ufw-before-forward
+    -A ufw-before-forward -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      match ctstate in {4, 2}
+      accept
+    -A ufw-before-forward -p icmp -m icmp --icmp-type 3 -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {3}
+      accept
+    -A ufw-before-forward -p icmp -m icmp --icmp-type 11 -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {11}
+      accept
+    -A ufw-before-forward -p icmp -m icmp --icmp-type 12 -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {12}
+      accept
+    -A ufw-before-forward -p icmp -m icmp --icmp-type 8 -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {8}
+      accept
+    -A ufw-before-forward -j ufw-user-forward
+      jump ufw-user-forward
+  chain ufw-before-input
+    -A ufw-before-input -i lo -j ACCEPT
+      match iifname in {"lo"}
+      accept
+    -A ufw-before-input -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      match ctstate in {4, 2}
+      accept
+    -A ufw-before-input -m conntrack --ctstate INVALID -j ufw-logging-deny
+      match ctstate in {1}
+      jump ufw-logging-deny
+    -A ufw-before-input -m conntrack --ctstate INVALID -j DROP
+      match ctstate in {1}
+      drop
+    -A ufw-before-input -p icmp -m icmp --icmp-type 3 -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {3}
+      accept
+    -A ufw-before-input -p icmp -m icmp --icmp-type 11 -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {11}
+      accept
+    -A ufw-before-input -p icmp -m icmp --icmp-type 12 -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {12}
+      accept
+    -A ufw-before-input -p icmp -m icmp --icmp-type 8 -j ACCEPT
+      match l4proto in {1}
+      match icmp-type in {8}
+      accept
+    -A ufw-before-input -p udp -m udp --sport 67 --dport 68 -j ACCEPT
+      match l4proto in {17}
+      match sport in {67}
+      match dport in {68}
+      accept
+    -A ufw-before-input -j ufw-not-local
+      jump ufw-not-local
+    -A ufw-before-input -d 224.0.0.251/32 -p udp -m udp --dport 5353 -j ACCEPT
+      match daddr in {224.0.0.251/32}
+      match l4proto in {17}
+      match dport in {5353}
+      accept
+    -A ufw-before-input -d 239.255.255.250/32 -p udp -m udp --dport 1900 -j ACCEPT
+      match daddr in {239.255.255.250/32}
+      match l4proto in {17}
+      match dport in {1900}
+      accept
+    -A ufw-before-input -j ufw-user-input
+      jump ufw-user-input
+  chain ufw-before-logging-forward
+  chain ufw-before-logging-input
+  chain ufw-before-logging-output
+  chain ufw-before-output
+    -A ufw-before-output -o lo -j ACCEPT
+      match oifname in {"lo"}
+      accept
+    -A ufw-before-output -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+      match ctstate in {4, 2}
+      accept
+    -A ufw-before-output -j ufw-user-output
+      jump ufw-user-output
+  chain ufw-logging-allow
+    -A ufw-logging-allow -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[UFW ALLOW] "
+      always: rate limit (-m limit): its burst lets a first packet through
+      noop: log (LOG)
+  chain ufw-logging-deny
+    -A ufw-logging-deny -m conntrack --ctstate INVALID -m limit --limit 3/min --limit-burst 10 -j RETURN
+      match ctstate in {1}
+      always: rate limit (-m limit): its burst lets a first packet through
+      return
+    -A ufw-logging-deny -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix "[UFW BLOCK] "
+      always: rate limit (-m limit): its burst lets a first packet through
+      noop: log (LOG)
+  chain ufw-not-local
+    -A ufw-not-local -m addrtype --dst-type LOCAL -j RETURN
+      match daddr-type in {2}
+      return
+    -A ufw-not-local -m addrtype --dst-type MULTICAST -j RETURN
+      match daddr-type in {5}
+      return
+    -A ufw-not-local -m addrtype --dst-type BROADCAST -j RETURN
+      match daddr-type in {3}
+      return
+    -A ufw-not-local -m limit --limit 3/min --limit-burst 10 -j ufw-logging-deny
+      always: rate limit (-m limit): its burst lets a first packet through
+      jump ufw-logging-deny
+    -A ufw-not-local -j DROP
+      drop
+  chain ufw-reject-forward
+  chain ufw-reject-input
+  chain ufw-reject-output
+  chain ufw-skip-to-policy-forward
+    -A ufw-skip-to-policy-forward -j DROP
+      drop
+  chain ufw-skip-to-policy-input
+    -A ufw-skip-to-policy-input -j DROP
+      drop
+  chain ufw-skip-to-policy-output
+    -A ufw-skip-to-policy-output -j ACCEPT
+      accept
+  chain ufw-track-forward
+  chain ufw-track-input
+  chain ufw-track-output
+    -A ufw-track-output -p tcp -m conntrack --ctstate NEW -j ACCEPT
+      match l4proto in {6}
+      match ctstate in {8}
+      accept
+    -A ufw-track-output -p udp -m conntrack --ctstate NEW -j ACCEPT
+      match l4proto in {17}
+      match ctstate in {8}
+      accept
+  chain ufw-user-forward
+    -A ufw-user-forward -d 172.17.0.2/32 -p tcp -m tcp --dport 80 -j ACCEPT
+      match daddr in {172.17.0.2/32}
+      match l4proto in {6}
+      match dport in {80}
+      accept
+  chain ufw-user-input
+    -A ufw-user-input -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -m recent --set --name DEFAULT --mask 255.255.255.255 --rsource
+      match l4proto in {6}
+      match dport in {22}
+      match ctstate in {8}
+      always: remember the sender (-m recent --set)
+    -A ufw-user-input -p tcp -m tcp --dport 22 -m conntrack --ctstate NEW -m recent --update --seconds 30 --hitcount 6 --name DEFAULT --mask 255.255.255.255 --rsource -j ufw-user-limit
+      match l4proto in {6}
+      match dport in {22}
+      match ctstate in {8}
+      never: seen recently (-m recent --update): a first packet's sender was never seen
+      jump ufw-user-limit
+    -A ufw-user-input -p tcp -m tcp --dport 22 -j ufw-user-limit-accept
+      match l4proto in {6}
+      match dport in {22}
+      jump ufw-user-limit-accept
+    -A ufw-user-input -p tcp -m multiport --dports 80,443 -m comment --comment "\'dapp_Nginx%20Full\'" -j ACCEPT
+      match l4proto in {6}
+      match dport in {80, 443}
+      always: comment: 'dapp_Nginx%20Full'
+      accept
+    -A ufw-user-input -s 198.51.100.0/24 -p tcp -m tcp --dport 9100 -j ACCEPT
+      match saddr in {198.51.100.0/24}
+      match l4proto in {6}
+      match dport in {9100}
+      accept
+  chain ufw-user-limit
+    -A ufw-user-limit -m limit --limit 3/min -j LOG --log-prefix "[UFW LIMIT BLOCK] "
+      always: rate limit (-m limit): its burst lets a first packet through
+      noop: log (LOG)
+    -A ufw-user-limit -j REJECT --reject-with icmp-port-unreachable
+      reject
+  chain ufw-user-limit-accept
+    -A ufw-user-limit-accept -j ACCEPT
+      accept
+  chain ufw-user-logging-forward
+  chain ufw-user-logging-input
+  chain ufw-user-logging-output
+  chain ufw-user-output
+table ip nat (iptables)
+  chain PREROUTING: hook prerouting, type nat, priority -100, policy accept
+    -A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER
+      match daddr-type in {2}
+      jump DOCKER
+  chain INPUT: hook input, type nat, priority 100, policy accept
+  chain OUTPUT: hook output, type nat, priority -100, policy accept
+    -A OUTPUT ! -d 127.0.0.0/8 -m addrtype --dst-type LOCAL -j DOCKER
+      match daddr not in {127.0.0.0/8}
+      match daddr-type in {2}
+      jump DOCKER
+  chain POSTROUTING: hook postrouting, type nat, priority 100, policy accept
+    -A POSTROUTING -s 172.18.0.0/16 ! -o br-5f1c0e2a9d3b -j MASQUERADE
+      match saddr in {172.18.0.0/16}
+      match oifname not in {"br-5f1c0e2a9d3b"}
+      noop: masquerade (MASQUERADE)
+    -A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE
+      match saddr in {172.17.0.0/16}
+      match oifname not in {"docker0"}
+      noop: masquerade (MASQUERADE)
+  chain DOCKER
+    -A DOCKER ! -i docker0 -p tcp -m tcp --dport 8080 -j DNAT --to-destination 172.17.0.2:80
+      match iifname not in {"docker0"}
+      match l4proto in {6}
+      match dport in {8080}
+      dnat addr 172.17.0.2 port 80
+    -A DOCKER -d 127.0.0.1/32 ! -i docker0 -p tcp -m tcp --dport 5432 -j DNAT --to-destination 172.17.0.3:5432
+      match daddr in {127.0.0.1/32}
+      match iifname not in {"docker0"}
+      match l4proto in {6}
+      match dport in {5432}
+      dnat addr 172.17.0.3 port 5432
+    -A DOCKER ! -i br-5f1c0e2a9d3b -p tcp -m tcp --dport 443 -j DNAT --to-destination 172.18.0.2:443
+      match iifname not in {"br-5f1c0e2a9d3b"}
+      match l4proto in {6}
+      match dport in {443}
+      dnat addr 172.18.0.2 port 443
+    -A DOCKER ! -i br-5f1c0e2a9d3b -p udp -m udp --dport 443 -j DNAT --to-destination 172.18.0.2:443
+      match iifname not in {"br-5f1c0e2a9d3b"}
+      match l4proto in {17}
+      match dport in {443}
+      dnat addr 172.18.0.2 port 443

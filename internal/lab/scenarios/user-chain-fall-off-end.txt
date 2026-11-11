@@ -1,0 +1,24 @@
+name: user-chain-fall-off-end
+about: A packet that matches nothing in a user chain falls off its end and carries on after the
+about: jump; user chains have no policy of their own.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+:CHK - [0:0]
+-A INPUT -j CHK
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+-A CHK -p tcp -m tcp --dport 80 -j DROP
+-A CHK -p tcp -m tcp --dport 8080 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+host tcp 0.0.0.0 8080
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
