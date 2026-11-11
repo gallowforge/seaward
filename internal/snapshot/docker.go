@@ -15,7 +15,13 @@ import (
 const dockerInspectTemplate = `{{.Id}} {{.State.Pid}} {{.HostConfig.NetworkMode}}` +
 	`{{range $k, $v := .NetworkSettings.Networks}} {{$k}}={{$v.IPAddress}}|{{$v.GlobalIPv6Address}}{{end}}`
 
-// dockerPS is one line of "docker ps --format '{{json .}}'", keys as Docker prints them.
+// dockerPSTemplate prints, per container, one JSON object with the six fields read below and
+// nothing else. Docker's whole listing line also carries the container's command with its
+// arguments, its labels and its mounts, and a password given on a command line would ride along.
+const dockerPSTemplate = `{"ID":{{json .ID}},"Names":{{json .Names}},"Image":{{json .Image}},` +
+	`"Ports":{{json .Ports}},"Networks":{{json .Networks}},"State":{{json .State}}}`
+
+// dockerPS is one line of that listing, keys as Docker names them.
 type dockerPS struct {
 	ID       string `json:"ID"`
 	Names    string `json:"Names"`

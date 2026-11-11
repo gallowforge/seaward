@@ -311,13 +311,23 @@ func everywhere(outside, on map[string]bool) bool {
 }
 
 // offLink reports whether a rule only covers packets addressed to a link-local or multicast
-// address (firewalld's dhcpv6-client and mdns services). The scan sends nothing there.
+// address (firewalld's dhcpv6-client and mdns services). The scan follows no packet there.
 func offLink(r host.FrontendRule) bool {
 	if !r.To.IsValid() {
 		return false
 	}
-	a := r.To.Addr()
-	return a.IsLinkLocalUnicast() || a.IsMulticast()
+	// The whole range has to lie in that space; one that merely starts there reaches further.
+	for _, n := range offLinkNets {
+		if r.To.Bits() >= n.Bits() && n.Contains(r.To.Addr().Unmap()) {
+			return true
+		}
+	}
+	return false
+}
+
+var offLinkNets = []netip.Prefix{
+	netip.MustParsePrefix("169.254.0.0/16"), netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("fe80::/10"), netip.MustParsePrefix("ff00::/8"),
 }
 
 // stated is what the firewall manager says about a port, in a few words.

@@ -36,7 +36,7 @@ var commands = []command{
 	{"sysctl", []string{"sysctl", "net.ipv4.ip_forward", "net.ipv6.conf.all.forwarding"}},
 	{"sysctl", []string{"sysctl", "-a", "-r", `net\.ipv4\.conf\..*\.route_localnet`}},
 	{"docker-version", []string{"docker", "version", "--format", "{{.Server.Version}}"}},
-	{"docker-ps", []string{"docker", "ps", "--no-trunc", "--format", "{{json .}}"}},
+	{"docker-ps", []string{"docker", "ps", "--no-trunc", "--format", dockerPSTemplate}},
 	{"docker-net", []string{"docker", "inspect", "--format", dockerInspectTemplate, "<ids>"}},
 	{"docker-ss", []string{"nsenter", "-t", "<pid>", "-n", "ss", "-Htulpn"}},
 	{"ufw-status", []string{"ufw", "status", "verbose"}},

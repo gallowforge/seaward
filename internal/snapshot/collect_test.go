@@ -39,8 +39,10 @@ var readOnly = map[string]func(args []string) bool{
 		switch {
 		case eq(a, "version", "--format", "{{.Server.Version}}"):
 			return true
-		case eq(a, "ps", "--no-trunc", "--format", "{{json .}}"):
-			return true
+		case len(a) == 4 && eq(a[:3], "ps", "--no-trunc", "--format"):
+			// Named fields only: the whole listing line carries each container's command line.
+			return a[3] == dockerPSTemplate && !strings.Contains(a[3], "json .}}") && !strings.Contains(a[3], ".Command") &&
+				!strings.Contains(a[3], ".Labels") && !strings.Contains(a[3], ".Mounts")
 		case len(a) >= 4 && a[0] == "inspect" && a[1] == "--format":
 			// The template must name fields; a bare inspect would print environments.
 			return a[2] == dockerInspectTemplate && !strings.Contains(a[2], ".Config") && !strings.Contains(a[2], "json .")
@@ -104,7 +106,7 @@ func TestCommandsAreReadOnly(t *testing.T) {
 func TestReadOnlyListCatchesWrites(t *testing.T) {
 	for _, argv := range [][]string{
 		{"iptables", "-F"}, {"nft", "flush", "ruleset"}, {"ss", "-K", "dport", "22"}, {"sysctl", "-w", "net.ipv4.ip_forward=1"},
-		{"sysctl", "net.ipv4.ip_forward=1"}, {"docker", "inspect", idWeb}, {"docker", "inspect", "--format", "{{json .}}", idWeb},
+		{"sysctl", "net.ipv4.ip_forward=1"}, {"docker", "inspect", idWeb}, {"docker", "inspect", "--format", "{{json .}}", idWeb}, {"docker", "ps", "--no-trunc", "--format", "{{json .}}"},
 		{"docker", "rm", idWeb}, {"ufw", "disable"}, {"firewall-cmd", "--reload"}, {"firewall-cmd", "--add-port=22/tcp"},
 		{"ip", "-j", "addr", "del", "192.0.2.10/24", "dev", "eth0"}, {"nsenter", "-t", "1", "-n", "sh"}, {"ipset", "flush"},
 	} {
@@ -144,9 +146,9 @@ func fakeMachine() (programs []string, cmds map[string]fakeCmd) {
 		// The IPv6 key is missing: sysctl complains and fails, but prints the other key.
 		"sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding": {out: "net.ipv4.ip_forward = 1\n",
 			stderr: "sysctl: cannot stat /proc/sys/net/ipv6/conf/all/forwarding: No such file or directory\n", code: 255},
-		`sysctl -a -r net\.ipv4\.conf\..*\.route_localnet`: {out: "net.ipv4.conf.all.route_localnet = 0\nnet.ipv4.conf.lo.route_localnet = 0\n"},
-		"docker version --format {{.Server.Version}}":      {out: "27.3.1\n"},
-		"docker ps --no-trunc --format {{json .}}":         {out: ps},
+		`sysctl -a -r net\.ipv4\.conf\..*\.route_localnet`:  {out: "net.ipv4.conf.all.route_localnet = 0\nnet.ipv4.conf.lo.route_localnet = 0\n"},
+		"docker version --format {{.Server.Version}}":       {out: "27.3.1\n"},
+		"docker ps --no-trunc --format " + dockerPSTemplate: {out: ps},
 		"docker inspect --format " + dockerInspectTemplate + " " + idWeb + " " + idDB + " " + idMon: {out: idWeb + " 1388 app app=172.18.0.2|\n" +
 			idDB + " 1447 app app=172.18.0.3|\n" + idMon + " 1500 host\n"},
 		"nsenter -t 1388 -n ss -Htulpn":   {out: "tcp LISTEN 0 511 0.0.0.0:80 0.0.0.0:*\n"},
@@ -324,7 +326,7 @@ func TestLocalEnvDropsRemoteDocker(t *testing.T) {
 func TestCollectRefusesOddNames(t *testing.T) {
 	programs, cmds := fakeMachine()
 	cmds["firewall-cmd --list-all-zones"] = fakeCmd{out: "public (active)\n  services: --reload ok/../x ssh\n"}
-	cmds["docker ps --no-trunc --format {{json .}}"] = fakeCmd{out: `{"ID":"--help","Names":"x","State":"running"}` + "\n"}
+	cmds["docker ps --no-trunc --format "+dockerPSTemplate] = fakeCmd{out: `{"ID":"--help","Names":"x","State":"running"}` + "\n"}
 	var calls [][]string
 	collectWith(context.Background(), fakeRunner(t, programs, cmds, &calls), fakeHost, true, func(string) bool { return true })
 	for _, c := range calls {

@@ -228,13 +228,18 @@ func TestPortArg(t *testing.T) {
 	}
 }
 
-// A snapshot is written for its owner alone, and under sudo the owner is whoever ran sudo.
-func TestWriteOwned(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "x.snapshot")
-	if err := writeOwned(path, []byte("one\n")); err != nil {
+// A snapshot is written for its owner alone, whatever was under that name before.
+func TestWritePrivate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "x.snapshot")
+	if err := writePrivate(path, []byte("one\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeOwned(path, []byte("two\n")); err != nil {
+	// An older file that anyone could read: the new one must not inherit that.
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivate(path, []byte("two\n")); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -248,6 +253,40 @@ func TestWriteOwned(t *testing.T) {
 	if st.Mode().Perm() != 0o600 {
 		t.Errorf("mode %o, want 600", st.Mode().Perm())
 	}
+
+	// A link planted under the name: refused, and what it points at is untouched.
+	victim := filepath.Join(dir, "victim")
+	if err := os.WriteFile(victim, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.snapshot")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivate(link, []byte("three\n")); err == nil {
+		t.Error("wrote through a symlink")
+	}
+	if got, _ := os.ReadFile(victim); string(got) != "keep\n" {
+		t.Errorf("the link's target now holds %q", got)
+	}
+	if st, err := os.Lstat(link); err != nil || st.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the link itself was replaced: %v, %v", st, err)
+	}
+	// Neither a directory nor a missing directory is written to.
+	if err := writePrivate(dir, []byte("x")); err == nil {
+		t.Error("wrote over a directory")
+	}
+	if err := writePrivate(filepath.Join(dir, "missing", "x.snapshot"), []byte("x")); err == nil {
+		t.Error("wrote into a directory that is not there")
+	}
+	// Nothing is left behind: the snapshot, the victim and the link.
+	if ents, _ := os.ReadDir(dir); len(ents) != 3 {
+		t.Errorf("%d entries left in the directory, want 3", len(ents))
+	}
+}
+
+// Under sudo the snapshot belongs to whoever ran sudo.
+func TestSudoUser(t *testing.T) {
 	for _, c := range []struct {
 		euid     int
 		uid, gid string

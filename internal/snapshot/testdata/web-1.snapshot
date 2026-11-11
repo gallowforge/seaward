@@ -82,8 +82,8 @@ net.ipv4.conf.lo.route_localnet = 0
 ### docker-version
 27.3.1
 ### docker-ps
-{"Command":"\"/docker-entrypoint.sh nginx -g 'daemon off;'\"","CreatedAt":"2025-01-01 10:00:00 +0000 UTC","ID":"5b0f3c9e8d7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c","Image":"nginx:1.27","Labels":"","LocalVolumes":"0","Mounts":"","Names":"web","Networks":"app","Ports":"0.0.0.0:8080->80/tcp, [::]:8080->80/tcp","RunningFor":"3 days ago","Size":"0B","State":"running","Status":"Up 3 days"}
-{"Command":"\"docker-entrypoint.sh postgres\"","CreatedAt":"2025-01-01 10:00:00 +0000 UTC","ID":"e2d4c6b8a0f1e3d5c7b9a1f3e5d7c9b1a3f5e7d9c1b3a5f7e9d1c3b5a7f9e1d3","Image":"postgres:16","Labels":"","LocalVolumes":"1","Mounts":"pgdata","Names":"postgres","Networks":"app","Ports":"127.0.0.1:5432->5432/tcp","RunningFor":"3 days ago","Size":"0B","State":"running","Status":"Up 3 days"}
+{"ID":"5b0f3c9e8d7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c","Names":"web","Image":"nginx:1.27","Ports":"0.0.0.0:8080->80/tcp, [::]:8080->80/tcp","Networks":"app","State":"running"}
+{"ID":"e2d4c6b8a0f1e3d5c7b9a1f3e5d7c9b1a3f5e7d9c1b3a5f7e9d1c3b5a7f9e1d3","Names":"postgres","Image":"postgres:16","Ports":"127.0.0.1:5432->5432/tcp","Networks":"app","State":"running"}
 ### docker-net
 5b0f3c9e8d7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c 1388 app app=172.18.0.2|
 e2d4c6b8a0f1e3d5c7b9a1f3e5d7c9b1a3f5e7d9c1b3a5f7e9d1c3b5a7f9e1d3 1447 app app=172.18.0.3|

@@ -1,5 +1,5 @@
 // Package scan answers the question Seaward exists for: which ports of a machine can be reached
-// from outside, by whom, and which rule decides it. It sends one first packet per port from every
+// from outside, by whom, and which rule decides it. It follows one first packet per port from every
 // kind of sender the rules tell apart, and compares the answers with what the firewall manager
 // (ufw, firewalld) says it allows.
 package scan

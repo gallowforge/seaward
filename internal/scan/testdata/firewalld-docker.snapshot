@@ -134,7 +134,7 @@ net.ipv4.conf.veth5b95487.route_localnet = 0
 ### docker-version
 28.0.4
 ### docker-ps
-{"Command":"\"/docker-entrypoint.sh nginx -g 'daemon off;'\"","CreatedAt":"2026-11-11 05:34:18 +0000 UTC","ID":"40fdf5d821351ef90b90164f50fd2c22b54186dee22453fdec3e2800894c9281","Image":"nginx:alpine","Labels":"maintainer=NGINX Docker Maintainers \u003cdocker-maint@nginx.com\u003e","LocalVolumes":"0","Mounts":"","Names":"web","Networks":"bridge","Ports":"0.0.0.0:8080-\u003e80/tcp, [::]:8080-\u003e80/tcp","RunningFor":"3 seconds ago","Size":"1.09kB (virtual 63MB)","State":"running","Status":"Up 3 seconds"}
+{"ID":"40fdf5d821351ef90b90164f50fd2c22b54186dee22453fdec3e2800894c9281","Names":"web","Image":"nginx:alpine","Ports":"0.0.0.0:8080->80/tcp, [::]:8080->80/tcp","Networks":"bridge","State":"running"}
 ### docker-net
 40fdf5d821351ef90b90164f50fd2c22b54186dee22453fdec3e2800894c9281 3921 bridge bridge=172.17.0.2|
 ### docker-ss 40fdf5d821351ef90b90164f50fd2c22b54186dee22453fdec3e2800894c9281

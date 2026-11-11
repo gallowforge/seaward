@@ -43,7 +43,8 @@ func TestScriptSyntax(t *testing.T) {
 func TestScriptIsReadable(t *testing.T) {
 	s := Script()
 	if !strings.HasPrefix(s, "#!/bin/sh\n") || !strings.Contains(s, "collector script") || strings.Contains(s, "@VERSION@") ||
-		strings.Contains(s, "@TEMPLATE@") || !strings.Contains(s, dockerInspectTemplate) {
+		strings.Contains(s, "@TEMPLATE@") || !strings.Contains(s, dockerInspectTemplate) ||
+		strings.Contains(s, "@PS@") || !strings.Contains(s, dockerPSTemplate) || strings.Contains(s, "{{json .}}") {
 		t.Error("script template not filled in")
 	}
 	if n := strings.Count(s, "\n"); n > 150 {

@@ -81,7 +81,7 @@ fi
 # environment variables, which often hold passwords, and they must never be printed.
 if has docker; then
 	run docker-version docker version --format '{{.Server.Version}}'
-	if run docker-ps docker ps --no-trunc --format '{{json .}}'; then
+	if run docker-ps docker ps --no-trunc --format '@PS@'; then
 		ids=$(printf '%s\n' "$o" | sed -n 's/.*"ID":"\([0-9a-f]*\)".*/\1/p')
 		if [ -n "$ids" ] && run docker-net docker inspect --format '@TEMPLATE@' $ids; then
 			net=$o
@@ -130,5 +130,5 @@ if [ -n "$errors" ]; then out errors "${errors%?}"; fi
 `
 
 func script() string {
-	return strings.NewReplacer("@VERSION@", Version, "@TEMPLATE@", dockerInspectTemplate).Replace(scriptText)
+	return strings.NewReplacer("@VERSION@", Version, "@TEMPLATE@", dockerInspectTemplate, "@PS@", dockerPSTemplate).Replace(scriptText)
 }

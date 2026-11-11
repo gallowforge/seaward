@@ -17,7 +17,7 @@ A scan runs a fixed list of listing commands, each with a five second limit, and
 | `ss -Htulpn` | what is listening, and which program |
 | `ip -j -d addr show`, `ip -j route show table main` | interfaces, addresses, routes |
 | `sysctl` for `ip_forward`, `forwarding`, `route_localnet` | whether packets are passed on |
-| `docker version`, `docker ps`, `docker inspect` with a fixed template | containers, their networks and published ports |
+| `docker version`, and `docker ps` and `docker inspect` each with a fixed template | containers, their networks and published ports |
 | `nsenter -t PID -n ss -Htulpn` | what listens inside each container |
 | `ufw status verbose`, `firewall-cmd` listings | what the firewall manager believes |
 
@@ -33,20 +33,27 @@ machine you would rather not put a binary on. Read it before you run it.
 A snapshot is one text file with the output of those commands. It holds firewall rules, interface
 addresses, routes, listening ports with program names, container names, images and published ports.
 
-It does not hold container environment variables, command lines, file contents, keys or passwords.
-`docker inspect` is called with a template that names its fields one by one for exactly that reason:
-container settings are where passwords live.
+It does not hold container environment variables, command lines, labels, mounts, file contents,
+keys or passwords. `docker ps` and `docker inspect` are each called with a template that names its
+fields one by one for exactly that reason: container settings are where passwords live. From
+`docker ps` that is six fields: id, name, image, published ports, networks and state.
 
 Addresses and host names are in it. Treat a snapshot like a network diagram: fine to hand to a
 colleague, not something to paste in public. `seaward snapshot -o` writes the file readable by its
-owner alone. Taken with sudo, it belongs to the person who ran sudo, so the scan that follows needs
-no root.
+owner alone, whatever was under that name before.
+
+Root is for reading the rules, not for writing the file. Under sudo, once the listing commands have
+run, Seaward gives up root for good and writes the file as the person who ran sudo. The scan that
+follows needs no root, and `-o` can write nothing that person could not have written themselves.
+The file is written beside its name and moved into place, so a link planted under that name is
+never followed, and a name that is a link, a device or a directory is refused.
 
 ## What could go wrong
 
 | What could go wrong | What prevents it |
 | --- | --- |
 | A scan changes the firewall | There is no code path that writes. The command list is fixed and every command in it is a listing. |
+| `-o` under sudo overwrites a file that belongs to root | The file is written after root has been given up, as the person who ran sudo. If root cannot be given up, nothing is written. |
 | A hung tool stalls a server login | Every command has a five second limit; a failure is written down in the snapshot and the scan carries on. |
 | A hostile snapshot file attacks the reader | The readers are plain parsers with no shell, no network and no file access beyond the one file. They are fuzzed; a rule they cannot follow is reported as undecided, never guessed. |
 | The live demo leaks a snapshot you paste | The page is static and the engine runs in your tab as WebAssembly. Its Content-Security-Policy allows connections to its own origin only. |

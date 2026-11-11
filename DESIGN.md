@@ -84,7 +84,7 @@ version does not read.
 | `ip-route-6` | `ip -j -6 route show table main` | JSON |
 | `sysctl` | `sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding` then `sysctl -a -r 'net\.ipv4\.conf\..*\.route_localnet'` | `key = value` lines |
 | `docker-version` | `docker version --format '{{.Server.Version}}'` | |
-| `docker-ps` | `docker ps --no-trunc --format '{{json .}}'` | one JSON object per line |
+| `docker-ps` | `docker ps --no-trunc --format TEMPLATE` | one JSON object per line: id, name, image, ports, networks, state and nothing else |
 | `docker-net` | `docker inspect --format '<template>' <ids>` | one line per container: `<id> <pid> <network mode> <network>=<ipv4>\|<ipv6> ...` The template names these fields only. |
 | `docker-ss <container id>` | `nsenter -t <pid> -n ss -Htulpn` | listeners inside one container; needs root |
 | `ufw-status` | `ufw status verbose` | |
@@ -262,8 +262,8 @@ it as it is.
    | Finding | Meaning |
    | --- | --- |
    | `exposed` | reachable from outside although the firewall manager does not allow it |
-   | `open` | reachable from outside, and allowed |
-   | `limited` | reachable for some senders only (a network, a set, VPN peers) |
+   | `open` | reachable from outside as the firewall manager allows, or by anyone when there is no manager |
+   | `limited` | no firewall manager, and the rules let only some senders in (a network, a set, VPN peers) |
    | `undecided` | hangs on something the model cannot see; the reason is given |
    | `local` | reachable from this machine only |
    | `blocked` | something listens and the rules stop every packet |
@@ -282,7 +282,7 @@ Three things about the firewall manager's side of it:
   port is `allowed`, not "allowed only on eth0, on eth1 ...". An interface the owner wrote into a
   ufw rule stays as written.
 - **Link-local and multicast openings are listed, not asked about.** firewalld's stock
-  `dhcpv6-client` service allows udp 546 to `fe80::/64`. The scan sends nothing to link-local or
+  `dhcpv6-client` service allows udp 546 to `fe80::/64`. The scan follows no packet to link-local or
   multicast addresses, so that opening shows in the manager's list (`546/udp to fe80::/64`) and is
   no reason to add a port to the report.
 - **A named sender arrives where the routes say.** `scan.Trace` (`seaward why PORT --from ADDR`)
@@ -294,6 +294,11 @@ Three things about the firewall manager's side of it:
 `scan`, `why PORT[/PROTO]`, `snapshot -o FILE`, `snapshot --script`, `version`; `-f FILE` reads a
 snapshot (`-` is standard input), so `ssh server sudo seaward snapshot | seaward scan -f -` reads a
 server from a laptop. Reading a snapshot works on any system; taking one needs Linux.
+
+`snapshot -o FILE` under sudo collects as root, then gives up root for good (`stepDown`: groups,
+group, user) and writes the file as the person who ran sudo, mode 600, as a new file moved into
+place (`writePrivate`). A name that is a link, a device or a directory is refused. If root cannot be
+given up, nothing is written.
 
 Exit status: 0 fine, 1 an error, 2 wrong usage. With `--check`: 3 when a port is exposed, 4 when
 nothing is exposed but something is undecided or unread. Colour only on a terminal; `NO_COLOR` and

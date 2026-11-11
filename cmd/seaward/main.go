@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -312,7 +313,7 @@ func doWhy(ctx context.Context, o options, arg string, text scan.TextOptions, st
 		if o.file != "" && o.file != "-" {
 			file = " -f " + o.file
 		}
-		fmt.Fprintf(stdout, "Nothing listens on %s and no rule names it, so the scan sent nothing there.\n"+
+		fmt.Fprintf(stdout, "Nothing listens on %s and no rule names it, so the scan followed no packet there.\n"+
 			"To follow a packet anyway, name a sender: seaward why %d --from 198.51.100.7%s\n", what, port, file)
 	}
 	return nil
@@ -337,30 +338,55 @@ func doSnapshot(ctx context.Context, o options, stdout, stderr io.Writer) error 
 		fmt.Fprint(stdout, b.String())
 		return nil
 	}
-	if err := writeOwned(o.out, []byte(b.String())); err != nil {
+	// Root was for reading the rules. The file is the caller's, so it is written as the caller:
+	// under sudo, as whoever ran sudo. Then the scan that follows needs no root to open it, and
+	// -o can write nothing that person could not have written themselves.
+	stepped := false
+	if uid, gid, ok := sudoUser(os.Geteuid(), os.Getenv("SUDO_UID"), os.Getenv("SUDO_GID")); ok {
+		if err := stepDown(uid, gid); err != nil {
+			return fmt.Errorf("could not give up root to write %s as the user who ran sudo (%w), so nothing was written. "+
+				"To write it yourself: sudo seaward snapshot > %s", o.out, err, o.out)
+		}
+		stepped = true
+	}
+	if err := writePrivate(o.out, []byte(b.String())); err != nil {
+		if stepped && errors.Is(err, os.ErrPermission) {
+			return fmt.Errorf("%w. The file is written as the user who ran sudo, not as root", err)
+		}
 		return err
 	}
 	fmt.Fprintf(stderr, "seaward: wrote %s. Read it anywhere with: seaward scan -f %s\n", o.out, o.out)
 	return nil
 }
 
-// writeOwned writes a snapshot for its owner alone: rules, addresses and process names are theirs to
-// share. Under sudo the owner is the person who ran sudo, not root, or the very next command, the
-// scan, could not open what this one just wrote. The owner is set on the open file, before anything
-// is written to it.
-func writeOwned(path string, data []byte) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+// writePrivate writes a snapshot readable by its owner alone: rules, addresses and program names
+// are theirs to share. It writes a new file beside the target and moves it into place, so a link
+// planted under that name is never followed, an older file's looser mode does not survive, and a
+// snapshot is never left half written.
+func writePrivate(path string, data []byte) error {
+	if st, err := os.Lstat(path); err == nil && !st.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a plain file, so it is left alone. To print the snapshot instead: seaward snapshot > FILE", path)
+	}
+	dir, name := filepath.Split(path)
+	if dir == "" {
+		dir = "."
+	}
+	f, err := os.CreateTemp(dir, "."+name+".*") // a new file, mode 600
 	if err != nil {
 		return err
 	}
-	if uid, gid, ok := sudoUser(os.Geteuid(), os.Getenv("SUDO_UID"), os.Getenv("SUDO_GID")); ok {
-		_ = f.Chown(uid, gid) // some filesystems refuse; the file is then root's, as before
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
+	if err == nil {
+		err = os.Rename(tmp, path)
 	}
-	return f.Close()
+	if err != nil {
+		os.Remove(tmp)
+	}
+	return err
 }
 
 // sudoUser is who ran sudo, when this process is root because of sudo.

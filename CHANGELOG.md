@@ -18,8 +18,9 @@ The first release.
   sets, maps and verdict maps, ipsets, Docker's chains and published ports, ufw and firewalld.
 - **Snapshots**: `seaward snapshot` saves what a scan reads as one text file, and
   `seaward snapshot --script` prints the collector as a shell script, so a server can be read
-  without installing anything on it. A snapshot reads on Linux and macOS, and one taken with sudo
-  belongs to whoever ran sudo.
+  without installing anything on it. A snapshot reads on Linux and macOS. One taken with sudo is
+  written as whoever ran sudo, after root has been given up, and holds no container command lines,
+  environments or labels.
 - **Says when it does not know**: a rule beyond the model makes the port undecided, with the reason.
   Rules that could not be read (no root) decide nothing.
 - **`--check`** for CI and cron: exit status 3 when a port is exposed, 4 when something is undecided.
