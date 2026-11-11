@@ -190,8 +190,9 @@ type Verdict struct {
 	Chain string // Jump and Goto: a chain in the same table
 }
 
-// VerdictMap looks the packet's key up and runs the verdict it finds. No entry: on to the next
-// expression. Exactly one of Entries and SetRef is used.
+// VerdictMap looks the packet's key up and runs the verdict it finds. No entry ends the rule, as a
+// failed match does; an entry that says continue goes on to the next expression. Exactly one of
+// Entries and SetRef is used.
 type VerdictMap struct {
 	Key     []Field
 	Entries []VmapEntry

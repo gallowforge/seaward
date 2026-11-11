@@ -475,10 +475,11 @@ func (w *walker) rule(c *rules.Chain, r *rules.Rule) (rules.VerdictKind, string)
 			if why != "" {
 				return w.unfollowed(c, r, why)
 			}
-			if found {
-				if k, target, done := w.verdict(c, r, v, nat); done {
-					return k, target
-				}
+			if !found {
+				return 0, "" // no entry for this packet: the rule ends here, as a failed match would
+			}
+			if k, target, done := w.verdict(c, r, v, nat); done {
+				return k, target
 			}
 		case *rules.DNAT:
 			if !nat || p.pastRoute {
@@ -549,7 +550,7 @@ func (w *walker) verdict(c *rules.Chain, r *rules.Rule, v rules.Verdict, nat boo
 	case rules.Reject:
 		w.step(StepRule, r, c.Name, "reject: the sender is told")
 	case rules.Continue:
-		return 0, "", true
+		return 0, "", false // on with the rest of the rule; as its last word, on to the next rule
 	case rules.Return, rules.Jump, rules.Goto:
 	default:
 		return 0, "", false

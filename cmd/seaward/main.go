@@ -33,18 +33,19 @@ const (
 const usage = `seaward shows which ports on this machine can really be reached from outside,
 and the rule that decides each one. It only reads. It never changes a rule.
 
-  seaward scan                      the report for this machine
-  seaward why PORT                  follow a packet to one port, rule by rule
-  seaward snapshot -o FILE          save what a scan reads, to look at on another machine
-  seaward snapshot --script         the collector as a shell script, for a machine without seaward
+  seaward scan                 the report for this machine
+  seaward why PORT             follow a packet to one port, rule by rule
+  seaward snapshot -o FILE     save what a scan reads, to look at elsewhere
+  seaward snapshot --script    the collector as a shell script, for a
+                               machine you will not install seaward on
   seaward version
 
 Options
-  -f, --file FILE    read a snapshot instead of this machine ("-" is standard input)
+  -f, --file FILE    read a snapshot, not this machine ("-" is standard input)
       --from ADDR    with why: follow a packet from this address
       --json         with scan: the report as JSON
       --check        with scan: exit with status 3 when a port is exposed,
-                     4 when nothing is exposed but the rules could not all be read
+                     4 when nothing is exposed but something is undecided
       --no-color     plain text, also set by NO_COLOR
 
 Reading firewall rules needs root: sudo seaward scan
@@ -307,8 +308,12 @@ func doWhy(ctx context.Context, o options, arg string, text scan.TextOptions, st
 		if proto != "" {
 			what = proto + " " + what
 		}
+		file := ""
+		if o.file != "" && o.file != "-" {
+			file = " -f " + o.file
+		}
 		fmt.Fprintf(stdout, "Nothing listens on %s and no rule names it, so the scan sent nothing there.\n"+
-			"To follow a packet anyway, name a sender: seaward why %d --from 198.51.100.7\n", what, port)
+			"To follow a packet anyway, name a sender: seaward why %d --from 198.51.100.7%s\n", what, port, file)
 	}
 	return nil
 }

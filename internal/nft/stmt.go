@@ -262,24 +262,17 @@ func (c *ctx) vmap(o *object) {
 		return
 	}
 	vm := &rules.VerdictMap{Key: fields}
-	entries, known := []rules.VmapEntry(nil), true
 	if s, ok := data.str(); ok && strings.HasPrefix(s, "@") {
 		vm.SetRef = rules.SetKey(c.t.family, c.t.name, s[1:])
-		si := c.t.sets[s[1:]]
-		switch {
-		case si == nil || si.set.Incomplete:
-			known = false // the engine says what is missing
-		case !si.verdict:
+		// A map that is missing or unread is left to the engine, which says what is missing.
+		if si := c.t.sets[s[1:]]; si != nil && !si.set.Incomplete && !si.verdict {
 			c.stop(fmt.Sprintf("the rule uses the map %s to pick a verdict, and it is not a verdict map", clip(s[1:])))
 			return
-		default:
-			for i, e := range si.set.Elems {
-				entries = append(entries, rules.VmapEntry{Key: e, Verdict: si.set.Verdicts[i]})
-			}
 		}
 	} else {
 		k, sv := data.obj().one()
 		bad := k != "set" || !sv.isArr()
+		var entries []rules.VmapEntry
 		var star *rules.VmapEntry
 		for _, e := range sv.arr() {
 			pair := e.arr()
@@ -312,36 +305,9 @@ func (c *ctx) vmap(o *object) {
 		}
 		vm.Entries = entries
 	}
-	if c.last {
-		c.add(vm)
-		return
-	}
-	// More of the rule follows the map. The kernel ends the rule when the map has no entry for the
-	// packet, and an entry that says "continue" goes on with the rest of the rule.
-	guard := &rules.Match{Key: fields, SetRef: vm.SetRef}
-	if vm.SetRef == "" {
-		guard.Values = &rules.Set{}
-		for _, e := range entries {
-			guard.Values.Elems = append(guard.Values.Elems, e.Key)
-		}
-	}
-	c.add(guard)
-	var rest []rules.VmapEntry
-	catchAll := false
-	for _, e := range entries {
-		if e.Verdict.Kind != rules.Continue {
-			rest = append(rest, e)
-			catchAll = catchAll || isAny(e.Key)
-		}
-	}
-	switch {
-	case !known || len(rest) == len(entries):
-		c.add(vm)
-	case catchAll:
-		c.stop(fmt.Sprintf("the verdict map keyed on %s mixes \"continue\" with a catch-all entry in the middle of a rule, which seaward cannot represent", clip(name)))
-	case len(rest) > 0:
-		c.add(&rules.VerdictMap{Key: fields, Entries: rest})
-	}
+	// The engine reads a map as the kernel does: no entry for the packet ends the rule, and an entry
+	// that says "continue" goes on with whatever follows the map.
+	c.add(vm)
 }
 
 // isAny reports an element that matches every packet: the "*" entry of a map.
