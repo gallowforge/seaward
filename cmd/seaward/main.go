@@ -337,12 +337,43 @@ func doSnapshot(ctx context.Context, o options, stdout, stderr io.Writer) error 
 		fmt.Fprint(stdout, b.String())
 		return nil
 	}
-	// Rules, addresses and process names are the owner's to share: the file is theirs alone.
-	if err := os.WriteFile(o.out, []byte(b.String()), 0o600); err != nil {
+	if err := writeOwned(o.out, []byte(b.String())); err != nil {
 		return err
 	}
 	fmt.Fprintf(stderr, "seaward: wrote %s. Read it anywhere with: seaward scan -f %s\n", o.out, o.out)
 	return nil
+}
+
+// writeOwned writes a snapshot for its owner alone: rules, addresses and process names are theirs to
+// share. Under sudo the owner is the person who ran sudo, not root, or the very next command, the
+// scan, could not open what this one just wrote. The owner is set on the open file, before anything
+// is written to it.
+func writeOwned(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if uid, gid, ok := sudoUser(os.Geteuid(), os.Getenv("SUDO_UID"), os.Getenv("SUDO_GID")); ok {
+		_ = f.Chown(uid, gid) // some filesystems refuse; the file is then root's, as before
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// sudoUser is who ran sudo, when this process is root because of sudo.
+func sudoUser(euid int, sudoUID, sudoGID string) (uid, gid int, ok bool) {
+	if euid != 0 {
+		return 0, 0, false
+	}
+	uid, err1 := strconv.Atoi(sudoUID)
+	gid, err2 := strconv.Atoi(sudoGID)
+	if err1 != nil || err2 != nil || uid <= 0 || gid < 0 {
+		return 0, 0, false
+	}
+	return uid, gid, true
 }
 
 // useColor: colour is for a person at a terminal, never for a pipe or a file.

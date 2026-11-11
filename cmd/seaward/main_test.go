@@ -227,3 +227,41 @@ func TestPortArg(t *testing.T) {
 		}
 	}
 }
+
+// A snapshot is written for its owner alone, and under sudo the owner is whoever ran sudo.
+func TestWriteOwned(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.snapshot")
+	if err := writeOwned(path, []byte("one\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeOwned(path, []byte("two\n")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "two\n" {
+		t.Fatalf("read back %q, %v", got, err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Errorf("mode %o, want 600", st.Mode().Perm())
+	}
+	for _, c := range []struct {
+		euid     int
+		uid, gid string
+		ok       bool
+	}{
+		{0, "1000", "1000", true},
+		{1000, "1000", "1000", false}, // not root: nothing to hand over
+		{0, "", "", false},            // root without sudo
+		{0, "0", "0", false},          // sudo from root
+		{0, "1000; id", "1000", false},
+		{0, "-5", "1000", false},
+	} {
+		if _, _, ok := sudoUser(c.euid, c.uid, c.gid); ok != c.ok {
+			t.Errorf("sudoUser(%d, %q, %q) = %v, want %v", c.euid, c.uid, c.gid, ok, c.ok)
+		}
+	}
+}
