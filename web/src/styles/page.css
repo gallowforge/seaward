@@ -1,0 +1,456 @@
+/* ---------- the verdict ---------- */
+
+.verdict {
+  display: grid;
+  gap: 2.5rem;
+  padding-block: 2.5rem 3rem;
+}
+@media (min-width: 64rem) {
+  .verdict {
+    grid-template-columns: minmax(0, 1fr) clamp(18.5rem, 26vw, 21rem);
+    gap: clamp(2.5rem, 5vw, 4rem);
+    align-items: start;
+    padding-block: 4rem 3.5rem;
+  }
+  .verdict h1 {
+    font-size: clamp(3.375rem, 0.5rem + 4.7vw, 4.75rem);
+  }
+}
+
+.verdict h1 {
+  font-size: clamp(2.5rem, 1.35rem + 4.9vw, 4.75rem);
+  font-weight: 600;
+  font-stretch: 84%;
+  line-height: 1;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+  outline: none;
+}
+.verdict h1.waiting {
+  color: var(--ink-3);
+  font-style: italic;
+  font-weight: 500;
+}
+.said {
+  display: block;
+}
+.said + .said {
+  margin-top: 0.12em;
+}
+/* the overprint: what the tool's list says, set against what is true */
+.said.over {
+  color: var(--alarm);
+}
+.detail {
+  margin-top: 1.5rem;
+  max-width: 34rem;
+  font-size: clamp(1.125rem, 1rem + 0.5vw, 1.375rem);
+  line-height: 1.4;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.failed {
+  margin-top: 1.5rem;
+  max-width: 40rem;
+  padding-left: 0.875rem;
+  border-left: 2px solid var(--ink);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.failed-more {
+  margin-top: 1rem;
+  color: var(--ink-2);
+}
+
+.picker {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 1rem;
+  align-items: baseline;
+  margin-top: 2.25rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--rule);
+  max-width: 40rem;
+}
+.picker > .k {
+  padding-top: 0.75rem;
+}
+.picker-list {
+  flex-wrap: wrap;
+  margin-left: -0.625rem;
+}
+.picker-back {
+  padding-left: 0.625rem;
+  color: var(--ink-2);
+}
+.picker-file,
+.picker-note {
+  color: var(--ink-2);
+  max-width: 32rem;
+}
+.picker-file {
+  padding-top: 0.5rem;
+  overflow-wrap: anywhere;
+}
+.picker-file code {
+  color: var(--ink);
+}
+.picker-own {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  margin-top: 0.125rem;
+  font-weight: 500;
+}
+.picker-busy {
+  display: block;
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+/* ---------- the cartouche: the chart's title block ---------- */
+
+.cartouche {
+  border: 3px double var(--ink);
+  background: var(--panel);
+  padding: 1.25rem 1.25rem 1.125rem;
+}
+.cart-over {
+  font-style: italic;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+.cart-host {
+  margin-top: 0.125rem;
+  font-size: 1.625rem;
+  font-weight: 600;
+  font-stretch: 88%;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.cart-facts {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--rule);
+}
+.cart-facts dt {
+  margin-bottom: 0.1875rem;
+}
+.cart-facts dd {
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+.cart-facts .of-sea span {
+  display: block;
+  font-style: italic;
+}
+.cart-facts .of-sea span + span {
+  margin-top: 0.125rem;
+}
+.cart-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.875rem 0.5rem;
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--rule);
+}
+.cart-figures div {
+  display: flex;
+  flex-direction: column-reverse;
+}
+.cart-figures dd {
+  font-size: 1.75rem;
+  font-style: italic;
+  font-weight: 500;
+  font-stretch: 88%;
+  font-variant-numeric: tabular-nums lining-nums;
+  line-height: 1.05;
+}
+.cart-figures .over dd,
+.cart-figures .over dt {
+  color: var(--alarm);
+}
+.cart-caveat {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.78125rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+/* ---------- the fine print: the chart's lower margin ---------- */
+
+.fine {
+  padding-block: 1.75rem 0;
+  scroll-margin-top: 1rem;
+}
+.fine-cols {
+  display: grid;
+  gap: 1.75rem 2.5rem;
+}
+@media (min-width: 40rem) {
+  .fine-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 64rem) {
+  .fine-cols {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 1.5fr);
+  }
+  .fine-cols .note:nth-child(n + 4) {
+    grid-column: 1 / -1;
+  }
+}
+.note {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+.note h3 {
+  margin-bottom: 0.625rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--ink);
+  color: var(--ink);
+}
+.note b {
+  color: var(--ink);
+}
+.caution {
+  font-style: italic;
+  font-size: 0.9375rem;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.allows {
+  margin-top: 0.375rem;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+.allows li {
+  padding-block: 0.1875rem;
+  overflow-wrap: anywhere;
+}
+.allows li + li {
+  border-top: 1px solid var(--rule);
+}
+.symbols {
+  display: grid;
+  gap: 0.375rem 1.5rem;
+}
+.symbols li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  line-height: 1.3;
+}
+.notes li {
+  padding-left: 1rem;
+  text-indent: -1rem;
+}
+.notes li::before {
+  content: '';
+  display: inline-block;
+  width: 0.4375rem;
+  height: 1px;
+  margin-right: 0.5625rem;
+  vertical-align: middle;
+  background: currentColor;
+}
+.notes li + li {
+  margin-top: 0.375rem;
+}
+
+/* what could not be read: heavy ink and hatching, since the chart is blank there */
+.unread {
+  position: relative;
+  margin-bottom: 2rem;
+  padding: 1rem 1.125rem 1.125rem 2.375rem;
+  border: 1.5px solid var(--ink);
+  background: var(--panel);
+}
+.unread::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 1.25rem;
+  border-right: 1.5px solid var(--ink);
+  background: repeating-linear-gradient(135deg, var(--ink) 0 1.5px, transparent 1.5px 6px);
+}
+.unread h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-stretch: 90%;
+}
+.unread p {
+  margin-top: 0.25rem;
+  max-width: 44rem;
+}
+.unread ul {
+  margin-top: 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+}
+.unread li {
+  padding-block: 0.25rem;
+  overflow-wrap: anywhere;
+}
+.unread li + li {
+  border-top: 1px solid var(--rule);
+}
+
+/* ---------- your own server ---------- */
+
+.own {
+  margin-top: 5rem;
+  scroll-margin-top: 1rem;
+}
+.own h2,
+.chart-head h2 {
+  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2rem);
+  font-weight: 600;
+  font-stretch: 86%;
+  letter-spacing: -0.012em;
+  line-height: 1.1;
+}
+.own-cols {
+  display: grid;
+  gap: 2.25rem;
+  margin-top: 1.25rem;
+}
+.drop {
+  display: grid;
+  gap: 1.25rem 3rem;
+  padding: 1.5rem 1.25rem;
+  border: 1.5px dashed var(--ink-3);
+  background: var(--panel);
+}
+@media (min-width: 52rem) {
+  .drop {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 2rem 2.25rem;
+  }
+  .drop-state,
+  .refused {
+    grid-column: 1 / -1;
+  }
+}
+.drop.over {
+  border-style: solid;
+  border-color: var(--ink);
+  background: var(--shallow);
+}
+.drop-how {
+  max-width: 34rem;
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+code.cmd {
+  user-select: all;
+  -webkit-user-select: all;
+  padding: 0.125em 0.375em;
+  border: 1px solid var(--hair);
+  background: var(--paper);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.file {
+  display: inline-block;
+  justify-self: start;
+  cursor: pointer;
+}
+.file input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+}
+.file span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 1.125rem;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+}
+.file:hover span {
+  background: var(--ink-2);
+}
+.file:focus-within span {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+.drop-state:empty {
+  display: none;
+}
+.drop-state p {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.drop-state a {
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--ink);
+}
+.refused {
+  padding-left: 0.875rem;
+  border-left: 2px solid var(--ink);
+  overflow-wrap: anywhere;
+}
+.refused pre {
+  margin-top: 0.375rem;
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+.cmds h3 {
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--ink);
+  color: var(--ink);
+}
+.cmds dl > div {
+  padding-block: 0.875rem;
+  border-bottom: 1px solid var(--rule);
+}
+@media (min-width: 56rem) {
+  .cmds dl {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 2.5rem;
+  }
+}
+.cmds dt code.cmd {
+  display: inline-block;
+  padding: 0.375em 0.625em;
+  font-size: 0.8125rem;
+}
+.cmds dt code.cmd::before {
+  content: '$ ';
+  color: var(--ink-3);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cmds dd {
+  margin-top: 0.375rem;
+  color: var(--ink-2);
+}
+.cmds-note {
+  margin-top: 0.875rem;
+  font-style: italic;
+  color: var(--ink-2);
+}

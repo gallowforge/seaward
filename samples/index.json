@@ -1,0 +1,26 @@
+[
+  {
+    "id": "shop-1",
+    "file": "shop-1.snapshot",
+    "title": "shop-1",
+    "description": "A shop server. ufw is on with default deny, and Docker runs the database, the cache and an admin page next to it."
+  },
+  {
+    "id": "shop-1-fixed",
+    "file": "shop-1-fixed.snapshot",
+    "title": "shop-1, fixed",
+    "description": "The same server after the fix. Docker publishes its three ports on this machine only, and the ufw rule for a port nothing listens on is gone."
+  },
+  {
+    "id": "edge-1",
+    "file": "edge-1.snapshot",
+    "title": "edge-1",
+    "description": "A gateway with no firewall tool. Its rules are written in nftables by hand: a WireGuard tunnel, a LAN behind it, and two ports passed on to machines inside."
+  },
+  {
+    "id": "shop-1-no-root",
+    "file": "shop-1-no-root.snapshot",
+    "title": "shop-1, no root",
+    "description": "The shop server read without sudo. The kernel hands its packet rules to root only, so the report says what it could not read and decides nothing."
+  }
+]

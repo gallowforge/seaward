@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f8f6ef" />
+    <meta name="description" content="Seaward reads a Linux server's own firewall rules and says which ports can really be reached from outside, and which rule decides it. This page runs the real engine in your browser, on a sample server or on your own snapshot." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Seaward: which ports can really be reached" />
+    <meta property="og:description" content="One read-only command for a Linux server: which ports can really be reached from outside, and which firewall rule decides it." />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>Seaward: which ports can really be reached</title>
+    <script vite-ignore src="./theme.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <noscript>This page runs the Seaward engine in your browser, which needs JavaScript. The command line does everything the page does: run "seaward help".</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

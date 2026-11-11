@@ -1,7 +1,8 @@
 # make            the binary in bin/
 # make test       Go tests with the race detector, then the page's
 # make lab        the engine against the real kernel: every scenario, each in a private network namespace
-# make pages      the live demo as a static site in pages/ (the engine as WebAssembly)
+# make demo       the demo page in pages/, with the engine compiled to WebAssembly
+# make pages      the same, plus the picture for its link card: what goes live
 # make release    static binaries for Linux and macOS in dist/
 # make shots      the README's pictures: real terminal sessions and the running demo, staged as glass
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)

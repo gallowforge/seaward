@@ -1,0 +1,563 @@
+/* ---------- the passage: one lane opened up ----------
+   An inset plan on the chart: each packet the engine followed, drawn as its own lane with
+   every rule it met marked on it, and the same rules written out below. */
+
+.passage {
+  position: relative;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  margin-block: 0.375rem 1.5rem;
+  padding: 1rem 0.875rem 1.25rem;
+  border: 3px double var(--ink);
+  background: var(--panel);
+  --t: var(--ink);
+}
+@media (min-width: 40rem) {
+  .passage {
+    padding: 1.25rem 1.5rem 1.75rem;
+  }
+}
+
+.pass-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.pass-what {
+  min-width: 0;
+}
+.pass-head h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.875rem;
+  margin-top: 0.125rem;
+  font-weight: 500;
+  font-size: 1rem;
+}
+.pass-head .sounding {
+  font-size: 1.875rem;
+  font-stretch: 88%;
+  line-height: 1.1;
+}
+.pass-svc {
+  overflow-wrap: anywhere;
+}
+.pass-acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: -0.375rem -0.375rem 0 0;
+}
+.pass-addr {
+  display: none;
+  align-items: center;
+  min-height: 2.5rem;
+  padding-inline: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+  text-decoration: none;
+}
+@media (min-width: 40rem) {
+  .pass-addr {
+    display: inline-flex;
+  }
+}
+.close {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  padding-inline: 0.625rem;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.close:hover {
+  color: var(--ink);
+}
+.close-x {
+  position: relative;
+  width: 0.75rem;
+  height: 0.75rem;
+}
+.close-x::before,
+.close-x::after {
+  content: '';
+  position: absolute;
+  left: -0.125rem;
+  right: -0.125rem;
+  top: 50%;
+  height: 1.5px;
+  margin-top: -0.75px;
+  background: currentColor;
+  rotate: 45deg;
+}
+.close-x::after {
+  rotate: -45deg;
+}
+.pass-why,
+.pass-none {
+  margin-top: 0.75rem;
+  max-width: 46rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.pass-none {
+  color: var(--ink-2);
+}
+
+/* where the packets were sent from */
+.from {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--ink);
+}
+.from-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.5rem;
+  padding-top: 0.5625rem;
+  font-weight: 400;
+  font-size: 0.875rem;
+}
+.from-h i {
+  color: var(--ink);
+}
+.from-n {
+  color: var(--ink-3);
+}
+summary.from-h {
+  position: relative;
+  min-height: 2.75rem;
+  align-items: center;
+  padding-block: 0.375rem;
+  padding-right: 2rem;
+  cursor: pointer;
+  list-style: none;
+}
+summary.from-h::-webkit-details-marker {
+  display: none;
+}
+summary.from-h::after {
+  content: '';
+  position: absolute;
+  right: 0.625rem;
+  top: 50%;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  margin-top: -0.3125rem;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  rotate: 45deg;
+}
+details[open] > summary.from-h::after {
+  margin-top: -0.0625rem;
+  rotate: 225deg;
+}
+
+/* ---------- one packet ---------- */
+
+.packet {
+  margin-top: 1.125rem;
+  --dur: 480ms;
+}
+.packet + .packet {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+}
+.packet.bad {
+  --t: var(--alarm);
+}
+.packet-h {
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.packet-h .addr {
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.fam {
+  margin-left: 0.625rem;
+  white-space: nowrap;
+}
+
+/* the packet's own lane, each step a mark on it */
+.track {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  margin-block: 1rem 1.125rem;
+  --ty: 0.6875rem;
+}
+.way {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.25rem;
+  max-width: 46rem;
+}
+.t-line {
+  position: absolute;
+  left: 0;
+  right: 0.25rem;
+  top: var(--ty);
+  margin-top: calc(var(--tw) / -2);
+  border-top: var(--tw) solid var(--t);
+  transform-origin: left center;
+  --tw: 1.5px;
+}
+.packet.bad .t-line {
+  --tw: 3px;
+}
+.packet.end-undecided .t-line {
+  -webkit-mask-image: repeating-linear-gradient(to right, #000 0 2px, transparent 2px 5px);
+  mask-image: repeating-linear-gradient(to right, #000 0 2px, transparent 2px 5px);
+}
+.t-hook {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+  min-width: 0;
+}
+.t-nodes {
+  display: flex;
+  align-items: center;
+  gap: 0.3125rem;
+  height: 1.375rem;
+}
+.t-name {
+  display: none;
+  white-space: nowrap;
+  font-size: 0.625rem;
+}
+@media (min-width: 52rem) {
+  .t-name {
+    display: block;
+  }
+  .t-nodes {
+    gap: 0.4375rem;
+  }
+}
+.node,
+.num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.node b,
+.num b {
+  font-weight: inherit;
+}
+/* a jump from chain to chain: a small mark, no more */
+.node.quiet {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-color: var(--ink-3);
+}
+.node.quiet b {
+  display: none;
+}
+.num.quiet {
+  border-color: transparent;
+  background: none;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+/* where the destination is rewritten: a diamond */
+.node.rewrite,
+.num.rewrite {
+  border-radius: 0;
+  width: 1.1875rem;
+  height: 1.1875rem;
+  rotate: 45deg;
+}
+.node.rewrite b,
+.num.rewrite b {
+  rotate: -45deg;
+}
+/* the rule that decided it: filled */
+.node.deciding,
+.num.deciding {
+  background: var(--t);
+  border-color: var(--t);
+  color: var(--panel);
+}
+/* the step that settled it: ringed */
+.node.decisive,
+.num.decisive {
+  box-shadow:
+    0 0 0 2px var(--panel),
+    0 0 0 3.5px var(--ink);
+}
+.t-end {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 0.75rem;
+  height: 1.375rem;
+}
+.t-glyph {
+  display: block;
+  width: 0.6875rem;
+  height: 0.6875rem;
+  border-radius: 50%;
+  background: var(--t);
+}
+.end-empty .t-glyph {
+  border: 1.5px solid var(--t);
+  background: var(--panel);
+}
+.end-stopped .t-glyph {
+  width: 0;
+  height: 0.875rem;
+  border-radius: 0;
+  border-left: 1.5px solid var(--t);
+  background: none;
+}
+.end-undecided .t-glyph {
+  width: auto;
+  height: auto;
+  background: none;
+}
+.end-undecided .t-glyph::before {
+  content: '?';
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1;
+}
+.t-word {
+  flex: none;
+  height: 1.375rem;
+  display: inline-flex;
+  align-items: center;
+  font-style: italic;
+  font-weight: 500;
+  color: var(--t);
+}
+
+.packet-body {
+  display: grid;
+  gap: 1.25rem;
+}
+@media (min-width: 64rem) {
+  .packet-body {
+    grid-template-columns: minmax(0, 19rem) minmax(0, 1fr);
+    gap: 3rem;
+    align-items: start;
+  }
+}
+.why {
+  max-width: 40rem;
+  text-wrap: pretty;
+}
+.ends {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.875rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.875rem;
+}
+.ends > div {
+  display: grid;
+  grid-template-columns: 5.25rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+}
+.ends dd {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ends dd b {
+  color: var(--ink);
+}
+.ends .over dt,
+.ends .over dd b {
+  color: var(--alarm);
+}
+.ends dd li + li {
+  margin-top: 0.25rem;
+}
+
+/* the same steps, written out */
+.hooks {
+  display: grid;
+  min-width: 0;
+}
+.hook {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 0;
+  padding-block: 0.75rem;
+  border-top: 1px solid var(--rule);
+}
+.hook:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+@media (min-width: 46rem) {
+  .hook {
+    grid-template-columns: 9.5rem minmax(0, 1fr);
+    gap: 1rem;
+  }
+}
+.hook-h {
+  line-height: 1.35;
+}
+.hook-h b {
+  display: block;
+}
+.hook-h span {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+.steps {
+  display: grid;
+  gap: 0.625rem;
+  min-width: 0;
+}
+.step {
+  display: grid;
+  grid-template-columns: 1.375rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  min-width: 0;
+}
+.step .num {
+  margin-top: 0.03125rem;
+}
+.step .num.rewrite {
+  margin: 0.125rem 0 0 0.09375rem;
+}
+.step-main {
+  min-width: 0;
+}
+.step-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.125rem 0.75rem;
+}
+.effect {
+  font-weight: 500;
+}
+.step.quiet .effect {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.place {
+  font-family: var(--mono);
+  font-size: 0.78125rem;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.tag {
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--ink);
+  color: var(--ink);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.step.deciding .tag:last-child,
+.step.decisive .tag:last-child {
+  background: var(--ink);
+  color: var(--panel);
+}
+.packet.bad .step.deciding .tag:last-child {
+  border-color: var(--alarm);
+  background: var(--alarm);
+}
+/* the rule itself, exactly as the machine holds it */
+.rule {
+  margin-top: 0.3125rem;
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  border-left: 2px solid var(--hair);
+  background: var(--paper);
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  color: var(--ink);
+}
+.rule code {
+  font-size: inherit;
+}
+.step.quiet .rule {
+  color: var(--ink-2);
+}
+.step.deciding .rule,
+.step.rewrite .rule {
+  border-left-color: var(--ink);
+}
+.packet.bad .step.deciding .rule {
+  border-left-color: var(--alarm);
+}
+.rule:focus-visible {
+  outline-offset: 1px;
+}
+
+/* ---------- the passage is drawn, step by step, as the lane opens ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .t-line {
+    animation: draw var(--dur) cubic-bezier(0.35, 0, 0.3, 1) both;
+  }
+  .node,
+  .t-end,
+  .t-name {
+    animation: mark 180ms ease-out both;
+    animation-delay: calc(var(--at, 0) * var(--dur));
+  }
+  .t-word {
+    animation: mark 180ms ease-out both;
+    animation-delay: var(--dur);
+  }
+  .step {
+    animation: step 240ms ease-out both;
+    animation-delay: calc(var(--at, 0) * var(--dur));
+  }
+}
+@keyframes draw {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes mark {
+  from {
+    opacity: 0;
+    scale: 0.4;
+  }
+}
+@keyframes step {
+  from {
+    opacity: 0;
+    translate: 0 0.25rem;
+  }
+}

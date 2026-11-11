@@ -1,0 +1,3096 @@
+{
+ "host": "shop-1",
+ "headline": "7 ports can be reached from outside. ufw allows only 4 of them.",
+ "detail": "Docker publishes the other 3 with rules of its own, which never pass ufw's list.",
+ "frontend": {
+  "tool": "ufw",
+  "default": "deny",
+  "allows": [
+   "22/tcp",
+   "80/tcp",
+   "443/tcp",
+   "9100/tcp from 198.51.100.0/24",
+   "8443/tcp"
+  ]
+ },
+ "vantages": [
+  {
+   "id": "internet",
+   "label": "the internet",
+   "short": "internet",
+   "iface": "eth0",
+   "scope": "world"
+  },
+  {
+   "id": "lan:eth0",
+   "label": "the local network on eth0 (203.0.113.0/24, 2001:db8:1::/64)",
+   "short": "LAN eth0",
+   "iface": "eth0",
+   "scope": "lan"
+  }
+ ],
+ "ports": [
+  {
+   "proto": "tcp",
+   "port": 5432,
+   "finding": "exposed",
+   "severity": "high",
+   "title": "Reachable from the internet. ufw does not allow it.",
+   "service": "postgres in container db (postgres:16)",
+   "reach": "the internet (IPv4 only)",
+   "stated": "not allowed",
+   "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.2:5432, container db. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+   "rewrite": {
+    "kind": "rule",
+    "hook": "prerouting",
+    "family": "ip",
+    "table": "nat",
+    "chain": "DOCKER",
+    "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j DNAT --to-destination 172.18.0.2:5432",
+    "effect": "destination becomes 172.18.0.2:5432"
+   },
+   "deciding": {
+    "kind": "rule",
+    "hook": "forward",
+    "family": "ip",
+    "table": "filter",
+    "chain": "DOCKER",
+    "rule": "-A DOCKER -d 172.18.0.2/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j ACCEPT",
+    "effect": "accept"
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "open",
+     "note": "IPv4 only"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "open",
+     "note": "IPv4 only"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": false,
+     "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.2:5432, container db. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+     "rewrite": {
+      "kind": "rule",
+      "hook": "prerouting",
+      "family": "ip",
+      "table": "nat",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j DNAT --to-destination 172.18.0.2:5432",
+      "effect": "destination becomes 172.18.0.2:5432"
+     },
+     "deciding": {
+      "kind": "rule",
+      "hook": "forward",
+      "family": "ip",
+      "table": "filter",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER -d 172.18.0.2/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "jump",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "PREROUTING",
+       "rule": "-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j DNAT --to-destination 172.18.0.2:5432",
+       "effect": "destination becomes 172.18.0.2:5432"
+      },
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "forwarded: 172.18.0.2 is reached through br-4c2f9a71d0e3"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "FORWARD",
+       "rule": "-A FORWARD -j DOCKER-FORWARD",
+       "effect": "to chain DOCKER-FORWARD"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-FORWARD",
+       "rule": "-A DOCKER-FORWARD -j DOCKER-BRIDGE",
+       "effect": "to chain DOCKER-BRIDGE"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-BRIDGE",
+       "rule": "-A DOCKER-BRIDGE -o br-4c2f9a71d0e3 -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER -d 172.18.0.2/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "handed to container db, where postgres is listening on port 5432",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": false,
+     "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.2:5432, container db. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+     "rewrite": {
+      "kind": "rule",
+      "hook": "prerouting",
+      "family": "ip",
+      "table": "nat",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j DNAT --to-destination 172.18.0.2:5432",
+      "effect": "destination becomes 172.18.0.2:5432"
+     },
+     "deciding": {
+      "kind": "rule",
+      "hook": "forward",
+      "family": "ip",
+      "table": "filter",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER -d 172.18.0.2/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "jump",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "PREROUTING",
+       "rule": "-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j DNAT --to-destination 172.18.0.2:5432",
+       "effect": "destination becomes 172.18.0.2:5432"
+      },
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "forwarded: 172.18.0.2 is reached through br-4c2f9a71d0e3"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "FORWARD",
+       "rule": "-A FORWARD -j DOCKER-FORWARD",
+       "effect": "to chain DOCKER-FORWARD"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-FORWARD",
+       "rule": "-A DOCKER-FORWARD -j DOCKER-BRIDGE",
+       "effect": "to chain DOCKER-BRIDGE"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-BRIDGE",
+       "rule": "-A DOCKER-BRIDGE -o br-4c2f9a71d0e3 -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER -d 172.18.0.2/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "handed to container db, where postgres is listening on port 5432",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 6379,
+   "finding": "exposed",
+   "severity": "high",
+   "title": "Reachable from the internet. ufw does not allow it.",
+   "service": "redis-server in container cache (redis:7)",
+   "reach": "the internet (IPv4 only)",
+   "stated": "not allowed",
+   "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.3:6379, container cache. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+   "rewrite": {
+    "kind": "rule",
+    "hook": "prerouting",
+    "family": "ip",
+    "table": "nat",
+    "chain": "DOCKER",
+    "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j DNAT --to-destination 172.18.0.3:6379",
+    "effect": "destination becomes 172.18.0.3:6379"
+   },
+   "deciding": {
+    "kind": "rule",
+    "hook": "forward",
+    "family": "ip",
+    "table": "filter",
+    "chain": "DOCKER",
+    "rule": "-A DOCKER -d 172.18.0.3/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j ACCEPT",
+    "effect": "accept"
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "open",
+     "note": "IPv4 only"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "open",
+     "note": "IPv4 only"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": false,
+     "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.3:6379, container cache. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+     "rewrite": {
+      "kind": "rule",
+      "hook": "prerouting",
+      "family": "ip",
+      "table": "nat",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j DNAT --to-destination 172.18.0.3:6379",
+      "effect": "destination becomes 172.18.0.3:6379"
+     },
+     "deciding": {
+      "kind": "rule",
+      "hook": "forward",
+      "family": "ip",
+      "table": "filter",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER -d 172.18.0.3/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "jump",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "PREROUTING",
+       "rule": "-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j DNAT --to-destination 172.18.0.3:6379",
+       "effect": "destination becomes 172.18.0.3:6379"
+      },
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "forwarded: 172.18.0.3 is reached through br-4c2f9a71d0e3"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "FORWARD",
+       "rule": "-A FORWARD -j DOCKER-FORWARD",
+       "effect": "to chain DOCKER-FORWARD"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-FORWARD",
+       "rule": "-A DOCKER-FORWARD -j DOCKER-BRIDGE",
+       "effect": "to chain DOCKER-BRIDGE"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-BRIDGE",
+       "rule": "-A DOCKER-BRIDGE -o br-4c2f9a71d0e3 -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER -d 172.18.0.3/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "handed to container cache, where redis-server is listening on port 6379",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": false,
+     "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.3:6379, container cache. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+     "rewrite": {
+      "kind": "rule",
+      "hook": "prerouting",
+      "family": "ip",
+      "table": "nat",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j DNAT --to-destination 172.18.0.3:6379",
+      "effect": "destination becomes 172.18.0.3:6379"
+     },
+     "deciding": {
+      "kind": "rule",
+      "hook": "forward",
+      "family": "ip",
+      "table": "filter",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER -d 172.18.0.3/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "jump",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "PREROUTING",
+       "rule": "-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j DNAT --to-destination 172.18.0.3:6379",
+       "effect": "destination becomes 172.18.0.3:6379"
+      },
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "forwarded: 172.18.0.3 is reached through br-4c2f9a71d0e3"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "FORWARD",
+       "rule": "-A FORWARD -j DOCKER-FORWARD",
+       "effect": "to chain DOCKER-FORWARD"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-FORWARD",
+       "rule": "-A DOCKER-FORWARD -j DOCKER-BRIDGE",
+       "effect": "to chain DOCKER-BRIDGE"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-BRIDGE",
+       "rule": "-A DOCKER-BRIDGE -o br-4c2f9a71d0e3 -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER -d 172.18.0.3/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "handed to container cache, where redis-server is listening on port 6379",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 8081,
+   "finding": "exposed",
+   "severity": "high",
+   "title": "Reachable from the internet. ufw does not allow it.",
+   "service": "php in container adminer (adminer:4)",
+   "reach": "the internet (IPv4 only)",
+   "stated": "not allowed",
+   "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.4:8080, container adminer. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+   "rewrite": {
+    "kind": "rule",
+    "hook": "prerouting",
+    "family": "ip",
+    "table": "nat",
+    "chain": "DOCKER",
+    "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 8081 -j DNAT --to-destination 172.18.0.4:8080",
+    "effect": "destination becomes 172.18.0.4:8080"
+   },
+   "deciding": {
+    "kind": "rule",
+    "hook": "forward",
+    "family": "ip",
+    "table": "filter",
+    "chain": "DOCKER",
+    "rule": "-A DOCKER -d 172.18.0.4/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 8080 -j ACCEPT",
+    "effect": "accept"
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "open",
+     "note": "IPv4 only"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "open",
+     "note": "IPv4 only"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": false,
+     "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.4:8080, container adminer. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+     "rewrite": {
+      "kind": "rule",
+      "hook": "prerouting",
+      "family": "ip",
+      "table": "nat",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 8081 -j DNAT --to-destination 172.18.0.4:8080",
+      "effect": "destination becomes 172.18.0.4:8080"
+     },
+     "deciding": {
+      "kind": "rule",
+      "hook": "forward",
+      "family": "ip",
+      "table": "filter",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER -d 172.18.0.4/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 8080 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "jump",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "PREROUTING",
+       "rule": "-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 8081 -j DNAT --to-destination 172.18.0.4:8080",
+       "effect": "destination becomes 172.18.0.4:8080"
+      },
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "forwarded: 172.18.0.4 is reached through br-4c2f9a71d0e3"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "FORWARD",
+       "rule": "-A FORWARD -j DOCKER-FORWARD",
+       "effect": "to chain DOCKER-FORWARD"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-FORWARD",
+       "rule": "-A DOCKER-FORWARD -j DOCKER-BRIDGE",
+       "effect": "to chain DOCKER-BRIDGE"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-BRIDGE",
+       "rule": "-A DOCKER-BRIDGE -o br-4c2f9a71d0e3 -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER -d 172.18.0.4/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 8080 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "handed to container adminer, where php is listening on port 8080",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": false,
+     "why": "A rule in chain DOCKER of table nat sends it on to 172.18.0.4:8080, container adminer. From there it is forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never sees it.",
+     "rewrite": {
+      "kind": "rule",
+      "hook": "prerouting",
+      "family": "ip",
+      "table": "nat",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 8081 -j DNAT --to-destination 172.18.0.4:8080",
+      "effect": "destination becomes 172.18.0.4:8080"
+     },
+     "deciding": {
+      "kind": "rule",
+      "hook": "forward",
+      "family": "ip",
+      "table": "filter",
+      "chain": "DOCKER",
+      "rule": "-A DOCKER -d 172.18.0.4/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 8080 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "jump",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "PREROUTING",
+       "rule": "-A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "prerouting",
+       "family": "ip",
+       "table": "nat",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 8081 -j DNAT --to-destination 172.18.0.4:8080",
+       "effect": "destination becomes 172.18.0.4:8080"
+      },
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "forwarded: 172.18.0.4 is reached through br-4c2f9a71d0e3"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "FORWARD",
+       "rule": "-A FORWARD -j DOCKER-FORWARD",
+       "effect": "to chain DOCKER-FORWARD"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-FORWARD",
+       "rule": "-A DOCKER-FORWARD -j DOCKER-BRIDGE",
+       "effect": "to chain DOCKER-BRIDGE"
+      },
+      {
+       "kind": "jump",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER-BRIDGE",
+       "rule": "-A DOCKER-BRIDGE -o br-4c2f9a71d0e3 -j DOCKER",
+       "effect": "to chain DOCKER"
+      },
+      {
+       "kind": "rule",
+       "hook": "forward",
+       "family": "ip",
+       "table": "filter",
+       "chain": "DOCKER",
+       "rule": "-A DOCKER -d 172.18.0.4/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp --dport 8080 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "handed to container adminer, where php is listening on port 8080",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 22,
+   "finding": "open",
+   "severity": "ok",
+   "title": "Reachable from the internet, as ufw allows.",
+   "service": "sshd",
+   "reach": "the internet",
+   "stated": "allowed, with a rate limit",
+   "why": "Accepted by a rule in chain ufw-user-limit-accept of table filter.",
+   "deciding": {
+    "kind": "rule",
+    "hook": "input",
+    "family": "ip",
+    "table": "filter",
+    "chain": "ufw-user-limit-accept",
+    "rule": "-A ufw-user-limit-accept -j ACCEPT",
+    "effect": "accept"
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "open"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "open"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw-user-limit-accept of table filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-limit-accept",
+      "rule": "-A ufw-user-limit-accept -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -p tcp -m tcp --dport 22 -j ufw-user-limit-accept",
+       "effect": "to chain ufw-user-limit-accept"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-limit-accept",
+       "rule": "-A ufw-user-limit-accept -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "sshd is listening on 0.0.0.0:22",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw6-user-limit-accept of table ip6 filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "ufw6-user-limit-accept",
+      "rule": "-A ufw6-user-limit-accept -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw6-before-input",
+       "effect": "to chain ufw6-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-before-input",
+       "rule": "-A ufw6-before-input -j ufw6-user-input",
+       "effect": "to chain ufw6-user-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-input",
+       "rule": "-A ufw6-user-input -p tcp -m tcp --dport 22 -j ufw6-user-limit-accept",
+       "effect": "to chain ufw6-user-limit-accept"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-limit-accept",
+       "rule": "-A ufw6-user-limit-accept -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "sshd is listening on [::]:22",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw-user-limit-accept of table filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-limit-accept",
+      "rule": "-A ufw-user-limit-accept -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -p tcp -m tcp --dport 22 -j ufw-user-limit-accept",
+       "effect": "to chain ufw-user-limit-accept"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-limit-accept",
+       "rule": "-A ufw-user-limit-accept -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "sshd is listening on 0.0.0.0:22",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw6-user-limit-accept of table ip6 filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "ufw6-user-limit-accept",
+      "rule": "-A ufw6-user-limit-accept -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw6-before-input",
+       "effect": "to chain ufw6-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-before-input",
+       "rule": "-A ufw6-before-input -j ufw6-user-input",
+       "effect": "to chain ufw6-user-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-input",
+       "rule": "-A ufw6-user-input -p tcp -m tcp --dport 22 -j ufw6-user-limit-accept",
+       "effect": "to chain ufw6-user-limit-accept"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-limit-accept",
+       "rule": "-A ufw6-user-limit-accept -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "sshd is listening on [::]:22",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 80,
+   "finding": "open",
+   "severity": "ok",
+   "title": "Reachable from the internet, as ufw allows.",
+   "service": "nginx",
+   "reach": "the internet",
+   "stated": "allowed",
+   "why": "Accepted by a rule in chain ufw-user-input of table filter.",
+   "deciding": {
+    "kind": "rule",
+    "hook": "input",
+    "family": "ip",
+    "table": "filter",
+    "chain": "ufw-user-input",
+    "rule": "-A ufw-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+    "effect": "accept"
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "open"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "open"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw-user-input of table filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-input",
+      "rule": "-A ufw-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nginx is listening on 0.0.0.0:80",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw6-user-input of table ip6 filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "ufw6-user-input",
+      "rule": "-A ufw6-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw6-before-input",
+       "effect": "to chain ufw6-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-before-input",
+       "rule": "-A ufw6-before-input -j ufw6-user-input",
+       "effect": "to chain ufw6-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-input",
+       "rule": "-A ufw6-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nginx is listening on [::]:80",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw-user-input of table filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-input",
+      "rule": "-A ufw-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nginx is listening on 0.0.0.0:80",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw6-user-input of table ip6 filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "ufw6-user-input",
+      "rule": "-A ufw6-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw6-before-input",
+       "effect": "to chain ufw6-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-before-input",
+       "rule": "-A ufw6-before-input -j ufw6-user-input",
+       "effect": "to chain ufw6-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-input",
+       "rule": "-A ufw6-user-input -p tcp -m tcp --dport 80 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nginx is listening on [::]:80",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 443,
+   "finding": "open",
+   "severity": "ok",
+   "title": "Reachable from the internet, as ufw allows.",
+   "service": "nginx",
+   "reach": "the internet",
+   "stated": "allowed",
+   "why": "Accepted by a rule in chain ufw-user-input of table filter.",
+   "deciding": {
+    "kind": "rule",
+    "hook": "input",
+    "family": "ip",
+    "table": "filter",
+    "chain": "ufw-user-input",
+    "rule": "-A ufw-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+    "effect": "accept"
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "open"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "open"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw-user-input of table filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-input",
+      "rule": "-A ufw-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nginx is listening on 0.0.0.0:443",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw6-user-input of table ip6 filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "ufw6-user-input",
+      "rule": "-A ufw6-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw6-before-input",
+       "effect": "to chain ufw6-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-before-input",
+       "rule": "-A ufw6-before-input -j ufw6-user-input",
+       "effect": "to chain ufw6-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-input",
+       "rule": "-A ufw6-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nginx is listening on [::]:443",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw-user-input of table filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-input",
+      "rule": "-A ufw-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nginx is listening on 0.0.0.0:443",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw6-user-input of table ip6 filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "ufw6-user-input",
+      "rule": "-A ufw6-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw6-before-input",
+       "effect": "to chain ufw6-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-before-input",
+       "rule": "-A ufw6-before-input -j ufw6-user-input",
+       "effect": "to chain ufw6-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-input",
+       "rule": "-A ufw6-user-input -p tcp -m tcp --dport 443 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nginx is listening on [::]:443",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 9100,
+   "finding": "open",
+   "severity": "ok",
+   "title": "Reachable from 198.51.100.0/24 only, as ufw allows.",
+   "service": "node_exporter",
+   "reach": "198.51.100.0/24 only",
+   "stated": "allowed only from 198.51.100.0/24",
+   "why": "Accepted by a rule in chain ufw-user-input of table filter.",
+   "deciding": {
+    "kind": "rule",
+    "hook": "input",
+    "family": "ip",
+    "table": "filter",
+    "chain": "ufw-user-input",
+    "rule": "-A ufw-user-input -s 198.51.100.0/24 -p tcp -m tcp --dport 9100 -j ACCEPT",
+    "effect": "accept"
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "some",
+     "note": "198.51.100.0/24 only"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "stopped"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "198.51.100.0/24",
+     "src": "198.51.100.7",
+     "dst": "203.0.113.10",
+     "class": "open",
+     "allowed": true,
+     "why": "Accepted by a rule in chain ufw-user-input of table filter.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-input",
+      "rule": "-A ufw-user-input -s 198.51.100.0/24 -p tcp -m tcp --dport 9100 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -s 198.51.100.0/24 -p tcp -m tcp --dport 9100 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "node_exporter is listening on [::]:9100",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 8443,
+   "finding": "dead",
+   "severity": "low",
+   "title": "ufw allows it, and nothing is listening.",
+   "reach": "nobody",
+   "stated": "allowed",
+   "why": "The firewall lets it through, but nothing is listening on tcp port 8443 at 203.0.113.10.",
+   "deciding": {
+    "kind": "rule",
+    "hook": "input",
+    "family": "ip",
+    "table": "filter",
+    "chain": "ufw-user-input",
+    "rule": "-A ufw-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+    "effect": "accept"
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "closed"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "closed"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "closed",
+     "allowed": true,
+     "why": "The firewall lets it through, but nothing is listening on tcp port 8443 at 203.0.113.10.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-input",
+      "rule": "-A ufw-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nothing is listening on tcp port 8443 at 203.0.113.10",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "closed",
+     "allowed": true,
+     "why": "The firewall lets it through, but nothing is listening on tcp port 8443 at 2001:db8:1::10.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "ufw6-user-input",
+      "rule": "-A ufw6-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw6-before-input",
+       "effect": "to chain ufw6-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-before-input",
+       "rule": "-A ufw6-before-input -j ufw6-user-input",
+       "effect": "to chain ufw6-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-input",
+       "rule": "-A ufw6-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nothing is listening on tcp port 8443 at 2001:db8:1::10",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "closed",
+     "allowed": true,
+     "why": "The firewall lets it through, but nothing is listening on tcp port 8443 at 203.0.113.10.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "ufw-user-input",
+      "rule": "-A ufw-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw-before-input",
+       "effect": "to chain ufw-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-before-input",
+       "rule": "-A ufw-before-input -j ufw-user-input",
+       "effect": "to chain ufw-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "ufw-user-input",
+       "rule": "-A ufw-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nothing is listening on tcp port 8443 at 203.0.113.10",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "closed",
+     "allowed": true,
+     "why": "The firewall lets it through, but nothing is listening on tcp port 8443 at 2001:db8:1::10.",
+     "deciding": {
+      "kind": "rule",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "ufw6-user-input",
+      "rule": "-A ufw6-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+      "effect": "accept"
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "rule": "-A INPUT -j ufw6-before-input",
+       "effect": "to chain ufw6-before-input"
+      },
+      {
+       "kind": "jump",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-before-input",
+       "rule": "-A ufw6-before-input -j ufw6-user-input",
+       "effect": "to chain ufw6-user-input"
+      },
+      {
+       "kind": "rule",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "ufw6-user-input",
+       "rule": "-A ufw6-user-input -p tcp -m tcp --dport 8443 -j ACCEPT",
+       "effect": "accept"
+      },
+      {
+       "kind": "deliver",
+       "hook": "deliver",
+       "effect": "nothing is listening on tcp port 8443 at 2001:db8:1::10",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 111,
+   "finding": "blocked",
+   "severity": "ok",
+   "title": "Stopped by the firewall.",
+   "service": "rpcbind",
+   "reach": "nobody",
+   "stated": "not allowed",
+   "why": "No rule lets it in: chain INPUT ends with policy drop.",
+   "deciding": {
+    "kind": "policy",
+    "hook": "input",
+    "family": "ip",
+    "table": "filter",
+    "chain": "INPUT",
+    "effect": "policy drop: no rule let it through",
+    "decisive": true
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "stopped"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "stopped"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "udp",
+   "port": 111,
+   "finding": "blocked",
+   "severity": "ok",
+   "title": "Stopped by the firewall.",
+   "service": "rpcbind",
+   "reach": "nobody",
+   "stated": "not allowed",
+   "why": "No rule lets it in: chain INPUT ends with policy drop.",
+   "deciding": {
+    "kind": "policy",
+    "hook": "input",
+    "family": "ip",
+    "table": "filter",
+    "chain": "INPUT",
+    "effect": "policy drop: no rule let it through",
+    "decisive": true
+   },
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "stopped"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "stopped"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 53,
+   "finding": "local",
+   "severity": "ok",
+   "title": "Listens on this machine only.",
+   "service": "systemd-resolve",
+   "reach": "this machine only",
+   "stated": "not allowed",
+   "why": "It is bound to 127.0.0.53, which only this machine can reach.",
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "stopped"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "stopped"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "udp",
+   "port": 53,
+   "finding": "local",
+   "severity": "ok",
+   "title": "Listens on this machine only.",
+   "service": "systemd-resolve",
+   "reach": "this machine only",
+   "stated": "not allowed",
+   "why": "It is bound to 127.0.0.53, which only this machine can reach.",
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "stopped"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "stopped"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "proto": "tcp",
+   "port": 8125,
+   "finding": "local",
+   "severity": "ok",
+   "title": "Listens on this machine only.",
+   "service": "statsd",
+   "reach": "this machine only",
+   "stated": "not allowed",
+   "why": "It is bound to 127.0.0.1, which only this machine can reach.",
+   "views": [
+    {
+     "vantage": "internet",
+     "state": "stopped"
+    },
+    {
+     "vantage": "lan:eth0",
+     "state": "stopped"
+    }
+   ],
+   "cells": [
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "192.0.2.7",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "internet",
+     "from": "anyone",
+     "src": "2001:db8:99::7",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "203.0.113.11",
+     "dst": "203.0.113.10",
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 203.0.113.10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    },
+    {
+     "vantage": "lan:eth0",
+     "from": "anyone on the local network",
+     "src": "2001:db8:1::11",
+     "dst": "2001:db8:1::10",
+     "ipv6": true,
+     "class": "filtered",
+     "allowed": false,
+     "why": "No rule lets it in: chain INPUT ends with policy drop.",
+     "deciding": {
+      "kind": "policy",
+      "hook": "input",
+      "family": "ip6",
+      "table": "filter",
+      "chain": "INPUT",
+      "effect": "policy drop: no rule let it through",
+      "decisive": true
+     },
+     "steps": [
+      {
+       "kind": "route",
+       "hook": "route",
+       "effect": "for this machine: 2001:db8:1::10 is one of its own addresses"
+      },
+      {
+       "kind": "policy",
+       "hook": "input",
+       "family": "ip6",
+       "table": "filter",
+       "chain": "INPUT",
+       "effect": "policy drop: no rule let it through",
+       "decisive": true
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "reachable": 7,
+  "exposed": 3,
+  "stopped": 2,
+  "quiet": 4,
+  "undecided": 0
+ },
+ "caveat": "Read from this machine's own rules. Anything in front of it (a cloud firewall, a router) is not seen."
+}

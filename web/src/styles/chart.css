@@ -1,0 +1,658 @@
+/* ---------- the chart ----------
+   One grid for every row: open water on the left, the shoreline (the firewall), the machine on
+   the right. On a narrow screen the water is a strip down the left and the words stand on land;
+   on a wide one each row is a line of a table with the drawing in it. */
+
+.chart {
+  scroll-margin-top: 1rem;
+}
+.chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 2rem;
+}
+.chart-how {
+  margin-top: 0.5rem;
+  max-width: 35rem;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.seen {
+  align-items: baseline;
+  margin-left: -0.125rem;
+}
+.seen .k {
+  margin-right: 0.25rem;
+  white-space: nowrap;
+}
+.seen-list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.strip {
+  position: relative;
+  overflow-x: clip;
+  margin-top: 1.5rem;
+  border-block: 1px solid var(--ink);
+  --cols: clamp(5.25rem, 22vw, 15rem) 0.875rem 1.75rem minmax(0, 1fr);
+  --shore-col: 2;
+  --land-col: 3;
+  --text-col: 4;
+  --pad: 0.875rem;
+  --y: calc(var(--pad) + 0.6875rem);
+  --w: 1.5px;
+  --coast: 1.5px;
+  --gap: 0.3125rem;
+  --notch: 0.4375rem;
+  --berth-x: 1.0625rem;
+  --lane: var(--ink);
+}
+
+.heads,
+.row {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: var(--cols);
+  grid-template-rows: auto auto;
+  padding-inline: max(var(--gut), calc((100% - var(--page)) / 2));
+}
+.row {
+  scroll-margin-top: 0.75rem;
+}
+
+/* the land: buff from the shoreline to the right edge of the window */
+.bg-land {
+  grid-column: var(--land-col) / -1;
+  grid-row: 1 / -1;
+  position: relative;
+  z-index: -1;
+  background: var(--land);
+}
+.bg-land::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 100%;
+  width: 100vw;
+  background: inherit;
+}
+
+/* the shallows and the coast line, where nothing else draws them */
+.h-shore,
+.bg-shore {
+  grid-column: var(--shore-col);
+  grid-row: 1 / -1;
+  position: relative;
+  background: var(--shallow);
+  box-shadow: inset 1px 0 0 var(--contour);
+}
+.bg-shore {
+  grid-row: 2;
+  z-index: -1;
+}
+.h-shore::after,
+.bg-shore::after {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: calc(100% - var(--coast) / 2);
+  border-left: var(--coast) solid var(--ink);
+}
+.strip.no-tool {
+  --coast: 1px;
+}
+.strip.no-tool .h-shore::after,
+.strip.no-tool .bg-shore::after {
+  border-left-color: var(--ink-3);
+}
+/* one depth contour, a little way off the coast */
+.h-shore::before,
+.bg-shore::before,
+.row .c.shore::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: -0.4375rem;
+  border-left: 1px solid var(--contour);
+  opacity: 0.4;
+}
+
+/* ---------- the head of the chart ---------- */
+
+.h-sea,
+.h-host {
+  grid-row: 1;
+  padding-block: 0.6875rem 0.625rem;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.h-sea {
+  grid-column: 1;
+  font-size: 0.8125rem;
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  color: var(--ink-2);
+}
+.h-host {
+  grid-column: var(--text-col) / -1;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+.h {
+  display: none;
+}
+.heads.none {
+  min-height: 7rem;
+}
+.none-said {
+  grid-column: var(--text-col) / -1;
+  grid-row: 1;
+  align-self: center;
+  padding-block: 2rem;
+  color: var(--ink-2);
+}
+
+/* ---------- a lane ---------- */
+
+.lane {
+  position: relative;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-template-rows: auto auto auto;
+  row-gap: 0.1875rem;
+  padding-block: var(--pad);
+  min-height: 2.75rem;
+  line-height: 1.375rem;
+  color: inherit;
+  text-decoration: none;
+}
+.strip.no-tool .lane {
+  grid-template-rows: auto auto;
+}
+/* the hairline between rows, and the wash under the pointer: both run the width of the window */
+.lane::before,
+.lane::after {
+  content: '';
+  position: absolute;
+  left: -100vw;
+  right: -100vw;
+  pointer-events: none;
+}
+.lane::before {
+  top: 0;
+  border-top: 1px solid var(--rule);
+}
+.row:first-child .lane::before {
+  border-top-color: var(--ink);
+  opacity: 0.5;
+}
+.lane::after {
+  inset-block: 0;
+  background: var(--wash);
+  opacity: 0;
+}
+.lane:hover::after,
+.row.open .lane::after {
+  opacity: 1;
+}
+.lane:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -3px;
+}
+
+.c {
+  position: relative;
+  min-width: 0;
+}
+.c.sea,
+.c.shore,
+.c.quay {
+  grid-row: 1 / -1;
+  margin-block: calc(var(--pad) * -1);
+}
+.c.sea {
+  grid-column: 1;
+}
+.c.shore {
+  grid-column: 2;
+  background: var(--shallow);
+  box-shadow: inset 1px 0 0 var(--contour);
+}
+.c.quay {
+  grid-column: 3;
+}
+.c.port {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  align-self: start;
+  padding-top: 1.3125rem;
+  font-size: 1.0625rem;
+  line-height: 1.375rem;
+}
+.c.svc,
+.c.says,
+.c.fact {
+  grid-column: 4;
+  overflow-wrap: anywhere;
+}
+.c.svc {
+  grid-row: 1;
+  padding-right: 2rem;
+  font-weight: 600;
+}
+.c.says,
+.c.fact {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  column-gap: 0.5rem;
+  align-items: baseline;
+}
+.c.says {
+  grid-row: 2;
+  color: var(--ink-2);
+}
+.c.fact {
+  grid-row: 3;
+}
+.strip.no-tool .c.fact {
+  grid-row: 2;
+}
+.c.says > *,
+.c.fact > * {
+  grid-column: 2;
+}
+.c.says > .k,
+.c.fact > .k {
+  grid-column: 1;
+  grid-row: 1;
+}
+.c.svc > .k {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nil {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--ink-3);
+}
+.remark {
+  display: none;
+}
+.remark-m {
+  display: block;
+  color: var(--ink-2);
+}
+.c.fact > .title {
+  display: block;
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+  color: var(--ink-2);
+}
+.over {
+  color: var(--alarm);
+}
+b.over {
+  margin-right: 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  font-stretch: 92%;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.loud .c.fact .v {
+  font-weight: 600;
+  color: var(--alarm);
+}
+
+.c.caret {
+  grid-column: 4;
+  grid-row: 1;
+  justify-self: end;
+  align-self: start;
+  width: 1.5rem;
+  height: 1.4rem;
+}
+.c.caret::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.4375rem;
+  height: 0.4375rem;
+  margin: -0.3125rem 0 0 -0.21875rem;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  rotate: 45deg;
+}
+.lane:hover .c.caret::before {
+  border-color: var(--ink);
+}
+.row.open .c.caret::before {
+  margin-top: -0.0625rem;
+  border-color: var(--ink);
+  rotate: 225deg;
+}
+
+/* ---------- the drawing: lane, shoreline, berth ----------
+   Every line is a border, not a filled box: a border keeps one weight wherever it falls on
+   the pixel grid, so no lane is heavier than its neighbour by accident. */
+
+.run {
+  display: none;
+  position: absolute;
+  top: var(--y);
+  left: 0;
+  right: 0;
+  margin-top: calc(var(--w) / -2);
+  border-top: var(--w) solid var(--lane);
+}
+.sea-through .c.sea .run,
+.sea-some .c.sea .run,
+.sea-stopped .c.sea .run,
+.sea-undecided .c.sea .run,
+.sea-through .c.shore .run,
+.sea-some .c.shore .run,
+.sea-stopped .c.shore .run,
+.sea-undecided .c.shore .run {
+  display: block;
+}
+/* on a narrow screen the lane comes in from beyond the edge of the page */
+.row .c.sea .run {
+  left: -100vw;
+}
+/* for some senders only: a broken line, the breaks counted from the shore */
+.sea-some .c.sea .run {
+  -webkit-mask-image: repeating-linear-gradient(to left, transparent 0 0.25rem, #000 0.25rem 0.625rem);
+  mask-image: repeating-linear-gradient(to left, transparent 0 0.25rem, #000 0.25rem 0.625rem);
+}
+.sea-some .c.shore .run {
+  -webkit-mask-image: repeating-linear-gradient(to right, #000 0 0.375rem, transparent 0.375rem 0.625rem);
+  mask-image: repeating-linear-gradient(to right, #000 0 0.375rem, transparent 0.375rem 0.625rem);
+}
+/* not decided: a dotted line that gives out at the shore */
+.sea-undecided .c.sea .run {
+  -webkit-mask-image: repeating-linear-gradient(to left, transparent 0 3px, #000 3px 5px);
+  mask-image: repeating-linear-gradient(to left, transparent 0 3px, #000 3px 5px);
+}
+.sea-undecided .c.shore .run {
+  -webkit-mask-image: repeating-linear-gradient(to right, #000 0 2px, transparent 2px 5px);
+  mask-image: repeating-linear-gradient(to right, #000 0 2px, transparent 2px 5px);
+}
+/* stopped: the lane ends short of the coast, with a bar across it */
+.sea-stopped .c.shore .run,
+.sea-undecided .c.shore .run {
+  right: 0.375rem;
+}
+.sea-stopped .c.shore .run::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: calc(var(--w) / -2);
+  height: 0.6875rem;
+  translate: 0 -50%;
+  border-left: var(--coast) solid var(--lane);
+}
+.sea-undecided .c.quay::before {
+  content: '?';
+  position: absolute;
+  top: var(--y);
+  left: 0.3125rem;
+  translate: 0 -50%;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1;
+}
+.land-through .c.quay .run {
+  display: block;
+  left: calc(var(--coast) * -1);
+  right: calc(100% - var(--berth-x));
+}
+/* bound to the machine itself: a short lane on land that never touches the water */
+.land-stub .c.quay .run {
+  display: block;
+  left: 0.5rem;
+  right: calc(100% - var(--berth-x));
+}
+
+/* the coast, as the tool's own list has it */
+.coast {
+  position: absolute;
+  inset-block: 0;
+  left: calc(100% - var(--coast) / 2);
+  width: 0;
+}
+.coast::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  border-left: var(--coast) solid var(--ink);
+}
+.shore-plain .coast::before {
+  border-left-color: var(--ink-3);
+}
+/* where the list lets the port in, the coast opens and the water runs a little way inland */
+.shore-gate .coast::before,
+.shore-part .coast::before {
+  -webkit-mask-image: linear-gradient(#000 calc(var(--y) - var(--gap)), transparent calc(var(--y) - var(--gap)) calc(var(--y) + var(--gap)), #000 calc(var(--y) + var(--gap)));
+  mask-image: linear-gradient(#000 calc(var(--y) - var(--gap)), transparent calc(var(--y) - var(--gap)) calc(var(--y) + var(--gap)), #000 calc(var(--y) + var(--gap)));
+}
+.shore-gate .coast::after,
+.shore-part .coast::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: calc(var(--y) - var(--gap) - var(--coast));
+  box-sizing: content-box;
+  width: var(--notch);
+  height: calc(var(--gap) * 2);
+  border-block: var(--coast) solid var(--ink);
+  background: var(--shallow);
+}
+
+.berth {
+  display: none;
+  position: absolute;
+  top: var(--y);
+  left: var(--berth-x);
+  width: 0.5625rem;
+  height: 0.5625rem;
+  border-radius: 50%;
+  translate: -50% -50%;
+}
+.berth-answers .berth {
+  display: block;
+  background: var(--lane);
+}
+/* stopped at the shore, with a program behind it all the same */
+.land-none.berth-answers .berth {
+  background: var(--ink-3);
+}
+.sea-undecided .berth {
+  display: none;
+}
+/* an empty berth: let through, and nothing is listening */
+.berth-empty .berth {
+  display: block;
+  width: 0.6875rem;
+  height: 0.6875rem;
+  border: 1.5px solid var(--lane);
+  background: var(--land);
+}
+
+/* the overprint: a lane that gets through where the tool's list shows no way in */
+.hot {
+  --lane: var(--alarm);
+  --w: 3px;
+}
+.ring {
+  display: none;
+  position: absolute;
+  top: var(--y);
+  left: 100%;
+  width: 0.9375rem;
+  height: 0.9375rem;
+  border: 1.5px solid var(--alarm);
+  border-radius: 50%;
+  translate: -50% -50%;
+}
+.hot.breach .ring {
+  display: block;
+}
+
+/* ---------- a wide screen: one line of a table per port ---------- */
+
+@media (min-width: 60rem) {
+  .strip {
+    --cols: 6.25rem minmax(6rem, 1fr) 1.5rem 4.25rem minmax(11rem, 1.3fr) minmax(8.5rem, 0.9fr) minmax(12rem, 1.4fr) 2rem;
+    --shore-col: 3;
+    --land-col: 4;
+    --text-col: 5;
+    --pad: 0.9375rem;
+    --notch: 0.5625rem;
+    --berth-x: 2.5rem;
+  }
+  .strip.no-tool {
+    --cols: 6.25rem minmax(6rem, 1fr) 1.5rem 4.25rem minmax(11rem, 1.2fr) minmax(12rem, 1.6fr) 2rem;
+  }
+  .h-sea {
+    grid-column: 1 / 3;
+    padding-top: 0.8125rem;
+    font-size: 0.875rem;
+    letter-spacing: 0.06em;
+  }
+  .h-host {
+    padding-top: 0.875rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+  }
+  .h {
+    display: block;
+    grid-row: 2;
+    padding-bottom: 0.5625rem;
+  }
+  .h-port {
+    grid-column: 1;
+    padding-right: 0.875rem;
+    text-align: right;
+  }
+  .h-svc {
+    grid-column: 5;
+  }
+  .h-says {
+    grid-column: 6;
+  }
+  .h-fact {
+    grid-column: 7;
+  }
+  .strip.no-tool .h-fact {
+    grid-column: 6;
+  }
+
+  .lane,
+  .strip.no-tool .lane {
+    grid-template-rows: auto;
+  }
+  .lane > .c,
+  .strip.no-tool .lane > .c.fact {
+    grid-column: auto;
+    grid-row: 1;
+  }
+  .row .c.sea .run {
+    left: 0;
+  }
+  .c.port {
+    padding: 0 0.875rem 0 0;
+    text-align: right;
+  }
+  .c.svc,
+  .c.says,
+  .c.fact {
+    display: block;
+    padding-right: 1.5rem;
+  }
+  .c.svc {
+    font-weight: 500;
+  }
+  .c.says > .k,
+  .c.fact > .k {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .remark-m {
+    display: none;
+  }
+  /* a note set on the lane itself, the way a chart notes a channel */
+  .remark {
+    display: block;
+    position: absolute;
+    right: 0.875rem;
+    top: calc(var(--y) - 1.125rem);
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    color: var(--ink-2);
+  }
+  .c.caret {
+    justify-self: end;
+    align-self: start;
+    width: 2rem;
+  }
+}
+
+/* ---------- a lane in small, for the list of symbols ---------- */
+
+.glyph {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  grid-template-columns: 2.25rem 0.75rem 2rem;
+  height: 1.75rem;
+  background: linear-gradient(to right, transparent 3rem, var(--land) 3rem);
+  --pad: 0rem;
+  --y: 0.875rem;
+  --w: 1.5px;
+  --coast: 1.5px;
+  --gap: 0.3125rem;
+  --notch: 0.4375rem;
+  --berth-x: 1.25rem;
+  --lane: var(--ink);
+}
+.glyph.hot {
+  --lane: var(--alarm);
+  --w: 3px;
+}
+.glyph.shore-plain {
+  --coast: 1px;
+}
+.glyph .c {
+  grid-row: 1;
+  margin: 0;
+}
+.glyph .ring {
+  width: 0.8125rem;
+  height: 0.8125rem;
+}

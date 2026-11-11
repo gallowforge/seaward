@@ -1,0 +1,410 @@
+/* Seaward: a chart of one machine's approaches. Sea names are italic, land names upright.
+   Colour is kept for state: one overprint colour, and it means "the tool's list says otherwise". */
+
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('../assets/fonts/instrument-sans-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Instrument Sans';
+  src: url('../assets/fonts/instrument-sans-italic-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-stretch: 75% 100%;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Spline Sans Mono';
+  src: url('../assets/fonts/spline-sans-mono-latin.woff2') format('woff2');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Spline Sans Mono';
+  src: url('../assets/fonts/spline-sans-mono-italic-latin.woff2') format('woff2');
+  font-weight: 300 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  /* day: paper, ink, land buff, a thin shallow-water blue */
+  --paper: #f8f6ef;
+  --panel: #fdfcf8;
+  --ink: #16212b;
+  --ink-2: #44525e;
+  --ink-3: #5c6975;
+  --hair: #d8d3c3;
+  --rule: rgb(22 33 43 / 0.13);
+  --wash: rgb(22 33 43 / 0.045);
+  --land: #f1e8cb;
+  --land-2: #e4d8ad;
+  --shallow: #cfe5f1;
+  --contour: #7fb0cc;
+  --alarm: #c2136b;
+  --alarm-wash: rgb(194 19 107 / 0.09);
+
+  --sans: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'Spline Sans Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --page: 78rem;
+  --gut: 1rem;
+  color-scheme: light;
+}
+
+/* night: deep water, dimmed inks */
+html[data-theme='dark'] {
+  --paper: #0a141f;
+  --panel: #0f1c2a;
+  --ink: #d3dbe2;
+  --ink-2: #99a6b2;
+  --ink-3: #7c8a97;
+  --hair: #223142;
+  --rule: rgb(211 219 226 / 0.13);
+  --wash: rgb(211 219 226 / 0.05);
+  --land: #23211a;
+  --land-2: #3a3524;
+  --shallow: #10304a;
+  --contour: #2f6688;
+  --alarm: #ff4f9b;
+  --alarm-wash: rgb(255 79 155 / 0.13);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --paper: #0a141f;
+    --panel: #0f1c2a;
+    --ink: #d3dbe2;
+    --ink-2: #99a6b2;
+    --ink-3: #7c8a97;
+    --hair: #223142;
+    --rule: rgb(211 219 226 / 0.13);
+    --wash: rgb(211 219 226 / 0.05);
+    --land: #23211a;
+    --land-2: #3a3524;
+    --shallow: #10304a;
+    --contour: #2f6688;
+    --alarm: #ff4f9b;
+    --alarm-wash: rgb(255 79 155 / 0.13);
+    color-scheme: dark;
+  }
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --gut: 1.5rem;
+  }
+}
+@media (min-width: 72rem) {
+  :root {
+    --gut: 2.5rem;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--paper);
+}
+
+body {
+  margin: 0;
+  min-width: 20rem;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+p,
+ol,
+ul,
+dl,
+dd,
+pre {
+  margin: 0;
+}
+ol,
+ul {
+  padding: 0;
+  list-style: none;
+}
+h1,
+h2,
+h3,
+h4,
+h5 {
+  font-size: inherit;
+  font-weight: 600;
+}
+a {
+  color: inherit;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+code,
+pre {
+  font-family: var(--mono);
+  font-size: 0.8667em;
+}
+b {
+  font-weight: 600;
+}
+::selection {
+  background: var(--ink);
+  color: var(--paper);
+}
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* the page's measure: the same left and right edge for every part, the chart included */
+.wrap {
+  padding-inline: max(var(--gut), calc((100% - var(--page)) / 2));
+}
+
+/* read aloud, not shown */
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* the small capitals a chart labels things with */
+.k,
+.note h3,
+.cmds h3,
+.cart-facts dt,
+.cart-figures dt,
+.ends dt,
+.h,
+.t-name,
+.fam,
+.tag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-stretch: 92%;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  color: var(--ink-3);
+}
+
+/* a port number, set the way a chart sets a depth */
+.sounding {
+  font-style: italic;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.sounding sub {
+  font-size: 0.62em;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  vertical-align: baseline;
+  position: relative;
+  top: 0.28em;
+  margin-left: 0.18em;
+  color: var(--ink-3);
+}
+
+.skip {
+  position: absolute;
+  left: var(--gut);
+  top: -4rem;
+  z-index: 10;
+  padding: 0.625rem 0.875rem;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip:focus {
+  top: 0.5rem;
+}
+
+/* ---------- masthead ---------- */
+
+.mast {
+  border-bottom: 1px solid var(--rule);
+}
+.mast-in {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  min-height: 3.5rem;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.5rem;
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+.mark {
+  width: 1.375rem;
+  height: 1.375rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: square;
+}
+.mark circle {
+  fill: currentColor;
+  stroke: none;
+}
+.mast-nav {
+  display: none;
+  gap: 1.75rem;
+  margin-left: auto;
+}
+.mast-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.mast-nav a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+@media (min-width: 52rem) {
+  .mast-nav {
+    display: flex;
+  }
+}
+
+/* a choice among a few: plain words, the chosen one ruled under in ink */
+.theme,
+.seen,
+.picker-list {
+  display: flex;
+  align-items: center;
+}
+.theme {
+  margin-left: auto;
+}
+@media (min-width: 52rem) {
+  .theme {
+    margin-left: 0;
+    padding-left: 1.5rem;
+    border-left: 1px solid var(--rule);
+  }
+}
+.theme button,
+.seen button,
+.picker-list button {
+  position: relative;
+  min-height: 2.5rem;
+  min-width: 2.5rem;
+  padding: 0 0.625rem;
+  color: var(--ink-3);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.theme button:hover,
+.seen button:hover,
+.picker-list button:hover {
+  color: var(--ink);
+}
+.theme button::after,
+.seen button::after,
+.picker-list button::after {
+  content: '';
+  position: absolute;
+  left: 0.625rem;
+  right: 0.625rem;
+  bottom: 0.4375rem;
+  height: 1.5px;
+  background: transparent;
+}
+.theme button[aria-pressed='true'],
+.seen button[aria-pressed='true'],
+.picker-list button[aria-pressed='true'] {
+  color: var(--ink);
+  font-weight: 600;
+}
+.theme button[aria-pressed='true']::after,
+.seen button[aria-pressed='true']::after,
+.picker-list button[aria-pressed='true']::after {
+  background: var(--ink);
+}
+
+/* ---------- footer ---------- */
+
+.foot {
+  margin-top: 5rem;
+  border-top: 1px solid var(--ink);
+  padding-block: 1.5rem 3rem;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+.foot-in {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 2rem;
+}
+.foot-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink);
+  font-weight: 600;
+}
+.foot-brand .mark {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+}
+.foot-note {
+  flex-basis: 100%;
+  max-width: 44rem;
+  color: var(--ink-3);
+}
