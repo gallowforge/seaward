@@ -256,9 +256,59 @@ func TestUnread(t *testing.T) {
 		t.Errorf("counts: %+v", r.Counts)
 	}
 	out := scan.Text(r, scan.TextOptions{})
-	if !strings.Contains(out, "UNDECIDED  tcp 22") || !strings.Contains(out, r.Unread[0][:20]) {
-		t.Errorf("the unread rules are not loud enough:\n%s", out)
+	// The reason is said once, under the headline; the ports follow as a plain list.
+	if strings.Count(out, r.Unread[0]) != 1 || !strings.Contains(out, "not read  ") ||
+		!strings.Contains(out, "undecided  tcp 22  sshd     not known") || strings.Contains(out, "UNDECIDED") {
+		t.Errorf("the unread rules are not said once and plainly:\n%s", out)
 	}
+}
+
+// The samples the demo and the README show: each one tells the story it was written for.
+func TestSamples(t *testing.T) {
+	cases := []struct {
+		file, headline, findings string
+	}{
+		{"edge-1.snapshot", "8 ports can be reached from outside.",
+			"limited tcp 22, open tcp 53, open udp 53, limited udp 67, open tcp 8443, limited tcp 9090, " +
+				"open udp 27015, open udp 51820, local udp 323, local tcp 9093"},
+		{"shop-1-fixed.snapshot", "4 ports can be reached from outside, all allowed by ufw.",
+			"open tcp 22, open tcp 80, open tcp 443, open tcp 9100, local tcp 53, local udp 53, " +
+				"local tcp 5432, local tcp 6379, local tcp 8081, local tcp 8125"},
+		{"shop-1-no-root.snapshot", "The firewall rules could not be read, so nothing is decided.",
+			"undecided tcp 22, undecided tcp 53, undecided udp 53, undecided tcp 80, undecided tcp 111, " +
+				"undecided udp 111, undecided tcp 443, undecided tcp 5432, undecided tcp 6379, " +
+				"undecided tcp 8081, undecided tcp 8125, undecided tcp 9100"},
+	}
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			r := report(t, sample(t, c.file))
+			eq(t, "headline", r.Headline, c.headline)
+			eq(t, "findings", findings(r), c.findings)
+			out := scan.Text(r, scan.TextOptions{})
+			for _, ln := range strings.Split(out, "\n") {
+				if len(ln) > 100 {
+					t.Errorf("line wider than 100 columns: %q", ln)
+				}
+				if strings.TrimRight(ln, " ") != ln {
+					t.Errorf("line ends in a space: %q", ln)
+				}
+			}
+		})
+	}
+	// The gateway: who reaches what is said by place, by set and by address family.
+	r := report(t, sample(t, "edge-1.snapshot"))
+	reach := map[string]string{}
+	service := map[string]string{}
+	for _, p := range r.Ports {
+		k := fmt.Sprintf("%s %d", p.Proto, p.Port)
+		reach[k], service[k] = p.Reach, p.Service
+	}
+	eq(t, "ssh", reach["tcp 22"], "the set admins only")
+	eq(t, "dhcp", reach["udp 67"], "the local network on lan0 only")
+	eq(t, "metrics", reach["tcp 9090"], "VPN peers only")
+	eq(t, "passed on", reach["tcp 8443"], "the internet (IPv4 only)")
+	eq(t, "passed on to", service["tcp 8443"], "another machine, 10.20.0.50:443")
+	eq(t, "tunnel", service["udp 51820"], "the kernel")
 }
 
 func TestNoOutside(t *testing.T) {

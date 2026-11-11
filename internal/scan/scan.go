@@ -659,7 +659,22 @@ func views(shots []*shot, vs []*vantage) []View {
 // reach says who gets through, in a few words.
 func reach(shots []*shot) string {
 	type fam struct{ asked, ok bool }
-	var world, lan, vpn [2]fam
+	type near struct {
+		iface string
+		f     [2]fam
+	}
+	var world [2]fam
+	var lan, vpn []*near
+	find := func(all *[]*near, iface string) *near {
+		for _, n := range *all {
+			if n.iface == iface {
+				return n
+			}
+		}
+		n := &near{iface: iface}
+		*all = append(*all, n)
+		return n
+	}
 	wide := ""
 	var named []string
 	seen := map[string]bool{}
@@ -675,7 +690,7 @@ func reach(shots []*shot) string {
 			}
 			continue
 		}
-		f := &lan[i]
+		var f *fam
 		switch sh.v.Scope {
 		case "world":
 			f = &world[i]
@@ -683,29 +698,59 @@ func reach(shots []*shot) string {
 				wide = sh.v.Label
 			}
 		case "vpn":
-			f = &vpn[i]
+			f = &find(&vpn, sh.v.Iface).f[i]
+		default:
+			f = &find(&lan, sh.v.Iface).f[i]
 		}
 		f.asked = true
 		f.ok = f.ok || sh.reach
 	}
-	only := func(f [2]fam) string {
+	// one is "IPv4" or "IPv6" when both were asked and only that one gets through.
+	one := func(f [2]fam) string {
 		switch {
 		case f[0].asked && f[1].asked && f[0].ok && !f[1].ok:
-			return " (IPv4 only)"
+			return "IPv4"
 		case f[0].asked && f[1].asked && f[1].ok && !f[0].ok:
-			return " (IPv6 only)"
+			return "IPv6"
 		}
 		return ""
 	}
 	if world[0].ok || world[1].ok {
-		return wide + only(world)
+		if v := one(world); v != "" {
+			return wide + " (" + v + " only)"
+		}
+		return wide
+	}
+	// Networks this machine is plugged into: named by interface when only some of them get through.
+	side := func(what string, all []*near) string {
+		var in []string
+		var sum [2]fam
+		for _, n := range all {
+			if !n.f[0].ok && !n.f[1].ok {
+				continue
+			}
+			in = append(in, n.iface)
+			for i := range sum {
+				sum[i].asked = sum[i].asked || n.f[i].asked
+				sum[i].ok = sum[i].ok || n.f[i].ok
+			}
+		}
+		if len(in) == 0 {
+			return ""
+		}
+		if len(in) < len(all) {
+			what += " on " + list(in)
+		}
+		if v := one(sum); v != "" {
+			what += " over " + v
+		}
+		return what
 	}
 	var parts []string
-	if lan[0].ok || lan[1].ok {
-		parts = append(parts, "the local network"+only(lan))
-	}
-	if vpn[0].ok || vpn[1].ok {
-		parts = append(parts, "VPN peers"+only(vpn))
+	for _, p := range []string{side("the local network", lan), side("VPN peers", vpn)} {
+		if p != "" {
+			parts = append(parts, p)
+		}
 	}
 	parts = append(parts, named...)
 	if len(parts) == 0 {
@@ -834,7 +879,13 @@ func (b *builder) sum(rep *Report, vantages int) {
 		rep.Headline = "No outside network interface was found, so nothing was asked."
 	case len(rep.Unread) > 0 && n == 0:
 		rep.Headline = "The firewall rules could not be read, so nothing is decided."
-		detail = append(detail, rep.Unread[0])
+		root := true
+		for _, why := range rep.Unread {
+			root = root && (strings.Contains(why, "needs root") || strings.Contains(why, "without root"))
+		}
+		if root {
+			detail = append(detail, "The kernel shows them to root only. Run it again with sudo.")
+		}
 		u = 0
 	case n == 0:
 		rep.Headline = "Nothing can be reached from outside."

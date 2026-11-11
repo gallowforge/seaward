@@ -875,7 +875,11 @@ func (w *walker) deliverLocal() Result {
 		w.step(StepDeliver, nil, "", "nothing is listening on "+protoName(p.proto)+" port "+fmt.Sprint(p.dport)+" at "+p.dst.String())
 		return w.result(Closed)
 	}
-	w.step(StepDeliver, nil, "", who(l)+" is listening on "+hostPort(l.Addr, l.Port))
+	where := hostPort(l.Addr, l.Port)
+	if l.Dev != "" {
+		where += ", on " + l.Dev + " alone"
+	}
+	w.step(StepDeliver, nil, "", who(l)+" is listening on "+where)
 	r := w.result(Open)
 	r.Listener = l
 	return r

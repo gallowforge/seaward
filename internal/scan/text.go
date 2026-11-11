@@ -25,12 +25,17 @@ func Text(r *Report, o TextOptions) string {
 	if r.Detail != "" {
 		t.para(0, r.Detail)
 	}
-	for _, u := range r.Unread {
-		if strings.Contains(r.Detail, u) {
-			continue
+	// Ports that hang on rules nobody could read are not spelled out one by one: the reason is the
+	// same for all of them and is said once, here.
+	unread := map[string]bool{}
+	for i, u := range r.Unread {
+		unread[u] = true
+		label := ""
+		if i == 0 {
+			t.line("")
+			label = "not read"
 		}
-		t.line("")
-		t.field(0, "33", "not read", 10, u)
+		t.field(0, "33", label, 10, u)
 	}
 
 	tool := ""
@@ -40,7 +45,7 @@ func Text(r *Report, o TextOptions) string {
 	var rest []*Port
 	for i := range r.Ports {
 		p := &r.Ports[i]
-		if !loud(p.Finding) {
+		if !loud(p.Finding) || (p.Finding == Undecided && unread[p.Why]) {
 			rest = append(rest, p)
 			continue
 		}
@@ -232,42 +237,66 @@ func (t *writer) block(p *Port) {
 	}
 }
 
-// table writes the quiet ports, one per line. Where the terminal is too narrow for the last
-// column, what the firewall tool says moves to a line of its own under the port.
+// table writes the quiet ports, one per line. Too wide for the terminal, a container gives up its
+// image name first; after that, what the firewall tool says moves to a line of its own under the
+// port. A column nobody has anything to say in is left out.
 func (t *writer) table(ports []*Port, tool string) {
 	type row [5]string
 	head := row{"", "PORT", "SERVICE", "REACHED BY", ""}
 	if tool != "" {
 		head[4] = strings.ToUpper(tool) + " SAYS"
 	}
-	rows := make([]row, 0, len(ports))
+	cols := []int{0, 1, 3, 4}
 	for _, p := range ports {
-		r := row{p.Finding, fmt.Sprintf("%s %d", p.Proto, p.Port), p.Service, p.Reach, ""}
-		if r[2] == "" {
-			r[2] = "-"
+		if p.Service != "" {
+			cols = []int{0, 1, 2, 3, 4}
+			break
 		}
-		if tool != "" {
-			r[4] = p.Stated
-		}
-		rows = append(rows, r)
 	}
+	var rows []row
 	var w [5]int
-	for _, r := range append([]row{head}, rows...) {
-		for i, c := range r {
-			w[i] = max(w[i], utf8.RuneCountInString(c))
+	fill := func(brief bool) {
+		rows, w = rows[:0], [5]int{}
+		for _, p := range ports {
+			r := row{p.Finding, fmt.Sprintf("%s %d", p.Proto, p.Port), p.Service, p.Reach, ""}
+			if brief {
+				r[2] = noImage(r[2])
+			}
+			if r[2] == "" {
+				r[2] = "-"
+			}
+			if tool != "" {
+				r[4] = p.Stated
+			}
+			rows = append(rows, r)
+		}
+		for _, r := range append([]row{head}, rows...) {
+			for i, c := range r {
+				w[i] = max(w[i], utf8.RuneCountInString(c))
+			}
 		}
 	}
 	// total is the width of a line that ends with column last.
 	total := func(last int) int {
-		n := 2 + w[last]
-		for i := 0; i < last; i++ {
-			n += w[i] + 2
+		n := 0
+		for _, i := range cols {
+			if i <= last {
+				n += 2 + w[i]
+			}
 		}
 		return n
 	}
+	fill(false)
 	last := 3
-	if tool != "" && total(4) <= t.w {
-		last = 4
+	if tool != "" {
+		if total(4) > t.w {
+			fill(true)
+		}
+		if total(4) <= t.w {
+			last = 4
+		} else {
+			fill(false)
+		}
 	}
 	// Still too wide: the service name gives way first, then who reaches it.
 	for _, i := range []int{2, 3} {
@@ -277,13 +306,15 @@ func (t *writer) table(ports []*Port, tool string) {
 	}
 	write := func(r row, codes [5]string) {
 		var b strings.Builder
-		b.WriteString("  ")
-		for i := 0; i <= last; i++ {
-			c := clip(r[i], w[i])
-			b.WriteString(t.paint(codes[i], c))
-			if i < last {
-				b.WriteString(strings.Repeat(" ", w[i]+2-utf8.RuneCountInString(c)))
+		pad := 2
+		for _, i := range cols {
+			if i > last {
+				break
 			}
+			c := clip(r[i], w[i])
+			b.WriteString(strings.Repeat(" ", pad))
+			b.WriteString(t.paint(codes[i], c))
+			pad = w[i] + 2 - utf8.RuneCountInString(c)
 		}
 		t.line(b.String())
 	}
@@ -294,6 +325,15 @@ func (t *writer) table(ports []*Port, tool string) {
 			t.field(2+w[0]+2+w[1]+2, "2", tool+":", len(tool)+2, r[4])
 		}
 	}
+}
+
+// noImage drops the image from a container's name: "container db (postgres:16)" becomes
+// "container db".
+func noImage(s string) string {
+	if i := strings.LastIndex(s, " ("); i > 0 && strings.HasSuffix(s, ")") && strings.Contains(s, "container ") {
+		return s[:i]
+	}
+	return s
 }
 
 // clip shortens s to n characters, the last three of them dots.

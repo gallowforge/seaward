@@ -67,6 +67,15 @@ func build(b *Bundle) (*rules.Ruleset, *host.Host, error) {
 		}
 	}
 	buildHost(b, h, notRoot)
+	if meta["root"] == "yes" {
+		// Read as root, ss names every program that holds a socket. A socket with no name is held by
+		// the kernel itself: a WireGuard tunnel, an NFS server.
+		for i := range h.Listeners {
+			if l := &h.Listeners[i]; l.Netns == "" && l.Process == "" {
+				l.Process = "the kernel"
+			}
+		}
+	}
 	return rs, h, nil
 }
 
