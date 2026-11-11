@@ -270,7 +270,7 @@ func TestSettleCountsDiffer(t *testing.T) {
         accept
     xt target "REJECT"
         reject
-note: iptables-save printed 2 rules for the chain INPUT of table ip filter and the nft listing has 4; seaward read it from the nft listing, where conditions written by iptables show only their names
+note: for the chain INPUT of table ip filter, iptables-save printed 2 rules and the nft listing has 4; seaward read it from the nft listing, where conditions written by iptables show only their names
 `
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -303,7 +303,7 @@ func TestSettleChainInOneListingOnly(t *testing.T) {
 	if !noteWith(rs, "chain extra", "is in the nft listing and not in what iptables-save printed") {
 		t.Errorf("no note about the chain extra: %q", rs.Notes)
 	}
-	if !noteWith(rs, "iptables-save printed a chain ghost with 1 rule in table ip filter") {
+	if !noteWith(rs, "a chain ghost with 1 rule in table ip filter is in what iptables-save printed and not in the nft listing") {
 		t.Errorf("no note about the chain ghost: %q", rs.Notes)
 	}
 	if len(rs.Notes) != 2 {

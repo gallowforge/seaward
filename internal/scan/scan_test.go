@@ -373,7 +373,7 @@ func TestText(t *testing.T) {
 		"shop-1.scan.txt": func(o scan.TextOptions) string { o.Hint = "seaward why PORT"; return scan.Text(r, o) },
 		"shop-1.why.txt":  why,
 	} {
-		for _, width := range []int{100, 72} {
+		for _, width := range []int{100, 72, 60} {
 			plain := render(scan.TextOptions{Width: width})
 			for _, ln := range strings.Split(plain, "\n") {
 				if utf8.RuneCountInString(ln) > width {
@@ -411,6 +411,62 @@ func TestText(t *testing.T) {
 }
 
 func render100(r *scan.Report) string { return scan.Text(r, scan.TextOptions{Color: true}) }
+
+// Every sample, and every port in it, at every width a terminal is taken to have: no line runs
+// past the edge and none ends in a space.
+func TestWidths(t *testing.T) {
+	fixture, err := os.ReadFile(filepath.Join("testdata", "firewalld-docker.snapshot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := map[string]string{"firewalld-docker.snapshot": string(fixture)}
+	for _, name := range []string{"shop-1.snapshot", "shop-1-fixed.snapshot", "shop-1-no-root.snapshot", "edge-1.snapshot"} {
+		texts[name] = sample(t, name)
+	}
+	for name, text := range texts {
+		r := report(t, text)
+		for _, width := range []int{60, 64, 72, 80, 100, 110} {
+			o := scan.TextOptions{Width: width, Hint: "seaward why PORT"}
+			out := scan.Text(r, o)
+			for i := range r.Ports {
+				out += scan.WhyText(&r.Ports[i], o)
+			}
+			for _, ln := range strings.Split(out, "\n") {
+				if n := utf8.RuneCountInString(ln); n > width {
+					t.Errorf("%s at %d columns: a line of %d: %q", name, width, n, ln)
+				}
+				if strings.TrimRight(ln, " ") != ln {
+					t.Errorf("%s at %d columns: trailing space in %q", name, width, ln)
+				}
+			}
+		}
+	}
+}
+
+// What the firewall tool was told to allow is listed under its own name, entry by entry, and a
+// tool that was told nothing says so. A command too long for the line is never broken.
+func TestFooter(t *testing.T) {
+	r := report(t, sample(t, "shop-1.snapshot"))
+	out := scan.Text(r, scan.TextOptions{Width: 64, Hint: "seaward why PORT -f samples/shop-1.snapshot"})
+	for _, want := range []string{
+		"ufw's list  22/tcp, 80/tcp, 443/tcp,\n            9100/tcp from 198.51.100.0/24, 8443/tcp\n",
+		"To follow a packet rule by rule:\n  seaward why 5432 -f samples/shop-1.snapshot\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if out := scan.Text(r, scan.TextOptions{Hint: "seaward why PORT"}); !strings.Contains(out, "To follow a packet rule by rule: seaward why 5432\n") {
+		t.Errorf("a short command does not stand beside its introduction:\n%s", out)
+	}
+	none := report(t, machine(true, dropAll, []string{sshd}, ufwStatus()))
+	if none.Frontend == nil {
+		t.Fatal("ufw was not recognised")
+	}
+	if out := scan.Text(none, scan.TextOptions{}); !strings.Contains(out, "ufw's list  empty\n") {
+		t.Errorf("an empty list is not said:\n%s", out)
+	}
+}
 
 // A real machine, as GitHub's runner image had it: firewalld on with its stock zones and port
 // 9001 opened, Docker publishing nginx on 8080, plain listeners on 9000 and 9001. Real

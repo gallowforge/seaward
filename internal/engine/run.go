@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 
@@ -25,33 +26,151 @@ func Run(rs *rules.Ruleset, h *host.Host, p Probe) Result {
 //
 // When some of the machine's rules for the packet's family could not be read, nothing is decided:
 // a rule nobody read may stop a packet the known rules let through, or send one they stop
-// somewhere else first.
+// somewhere else first. The same holds for a packet that passes a chain outside the walked path
+// (rules.Unfollowed): what that chain does to it was never followed.
+//
+// A chain that can do no more than drop a packet leaves more standing. A packet the walked rules
+// drop is dropped either way. Any other packet is either dropped by that chain or ends the way
+// the walk says, which Otherwise keeps.
 func (e *Engine) Run(p Probe) Result {
 	r := e.run(p)
 	fam := "ip"
 	if p.Dst.Unmap().Is6() {
 		fam = "ip6"
 	}
-	var unread []string
+	var blind []string
+	onlyStops := true // nothing that was not seen can do more than drop the packet
 	for _, u := range e.rs.Unread {
 		if u.Family == "" || u.Family == fam {
-			unread = append(unread, u.Why)
+			blind = append(blind, u.Why)
+			onlyStops = false
 		}
 	}
-	if len(unread) == 0 {
+	for _, u := range e.unfollowed(p, r) {
+		blind = append(blind, u.Why)
+		onlyStops = onlyStops && u.OnlyStops
+	}
+	if len(blind) == 0 {
 		return r
 	}
-	switch r.Class {
-	case Undecided:
-	case Filtered, Rejected:
+	switch {
+	case r.Class == Undecided:
+		r.Unknowns = append(append([]string(nil), r.Unknowns...), blind...)
+		// A walk that could not say how the packet ends lists no ways for it to end, and
+		// "filtered" alone would read as the only one.
+		if onlyStops && len(r.Possible) > 0 && !slices.Contains(r.Possible, Filtered) {
+			r.Possible = append(append([]Class(nil), r.Possible...), Filtered)
+			slices.Sort(r.Possible)
+		}
+		return r
+	case onlyStops && r.Class == Filtered:
+		return r
+	case onlyStops:
+		r.Otherwise = r.Class
+		r.Possible = []Class{r.Class, Filtered}
+	case r.Class == Filtered || r.Class == Rejected:
 		r.Possible = []Class{Open, r.Class}
-		r.Class = Undecided
 	default:
 		r.Possible = []Class{r.Class, Filtered}
-		r.Class = Undecided
 	}
-	r.Unknowns = append(append([]string(nil), r.Unknowns...), unread...)
+	// The walk came to an answer, so what was not seen is the reason there is none: it leads.
+	r.Class = Undecided
+	r.Unknowns = append(blind, r.Unknowns...)
 	return r
+}
+
+// unfollowed lists the chains outside the walked path that this packet passes: those on the
+// interface it arrives on and, when the machine sends it on, those on the interface it leaves
+// through. A packet the walked rules stop never gets as far as the way out. When the ways through
+// leave by different interfaces, a chain on any of them is on the packet's way.
+func (e *Engine) unfollowed(p Probe, r Result) []rules.Unfollowed {
+	if len(e.rs.Unfollowed) == 0 {
+		return nil
+	}
+	iif := p.Iif
+	if iif == "" {
+		iif, _ = e.IifFor(p.Src)
+	}
+	in := e.stack(iif)
+	ways := r.outs
+	if ways == nil && r.Class != Filtered && r.Class != Rejected {
+		ways = []string{r.Out}
+	}
+	var out []string
+	for _, w := range ways {
+		for _, name := range e.stack(w) {
+			if !slices.Contains(out, name) {
+				out = append(out, name)
+			}
+		}
+	}
+	var under []string // what the packet passes underneath the interface it arrives on
+	if len(in) > 1 {
+		under = in[1:]
+	}
+	var passed []rules.Unfollowed
+	for _, u := range e.rs.Unfollowed {
+		switch {
+		// Where the packet arrives is not known: any chain on the way in may be on its way.
+		case iif == "" && (len(u.In) > 0 || u.BridgeIn):
+		// A walked ingress chain was run where the packet arrives; it is unseen one layer down.
+		case u.Walked && !named(under, u.In):
+			continue
+		case named(in, u.In), named(out, u.Out):
+		case u.BridgeIn && e.bridged(in), u.BridgeOut && e.bridged(out):
+		default:
+			continue
+		}
+		passed = append(passed, u)
+	}
+	return passed
+}
+
+// stack is every interface a packet on ifname passes on its way in or out: the interface itself,
+// the ports of a bridge or bond (it used one of them, and which is not known) and whatever a VLAN
+// sits on. Each of them has its own ingress and egress hooks.
+func (e *Engine) stack(ifname string) []string {
+	var out []string
+	var add func(string)
+	add = func(name string) {
+		if name == "" || slices.Contains(out, name) {
+			return
+		}
+		out = append(out, name)
+		if in := e.ifs[name]; in != nil {
+			add(in.Lower)
+		}
+		for i := range e.h.Interfaces {
+			if e.h.Interfaces[i].Master == name {
+				add(e.h.Interfaces[i].Name)
+			}
+		}
+	}
+	add(ifname)
+	return out
+}
+
+// bridged is true when one of the interfaces is a bridge.
+func (e *Engine) bridged(names []string) bool {
+	for _, n := range names {
+		if in := e.ifs[n]; in != nil && in.Kind == "bridge" {
+			return true
+		}
+	}
+	return false
+}
+
+// named is true when a chain attached to the interfaces in devs sees a packet that passes the
+// interfaces in names. A device that ends in "*" stands for every name that starts that way.
+func named(names, devs []string) bool {
+	for _, d := range devs {
+		for _, n := range names {
+			if d == n || (strings.HasSuffix(d, "*") && strings.HasPrefix(n, d[:len(d)-1])) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (e *Engine) run(p Probe) Result {
@@ -61,11 +180,14 @@ func (e *Engine) run(p Probe) Result {
 	var choices []bool
 	for {
 		if len(all) >= maxBranches {
+			// Not every way through was followed, so the ways it can end are not all known.
+			out, outs := leaves(all)
 			return Result{
 				Class:    Undecided,
 				Steps:    all[0].Steps,
+				Out:      out,
+				outs:     outs,
 				Unknowns: append(whys, "there are more conditions the model cannot decide than it will follow"),
-				Possible: classes(all),
 			}
 		}
 		w := &walker{e: e, choices: choices, memo: map[any]bool{}}
@@ -100,21 +222,45 @@ func (e *Engine) run(p Probe) Result {
 		first.Unknowns = whys
 		return first
 	}
+	out, outs := leaves(all)
 	return Result{
 		Class:     Undecided,
 		Steps:     first.Steps,
 		FinalDst:  first.FinalDst,
 		FinalPort: first.FinalPort,
+		Out:       out,
+		outs:      outs,
 		Unknowns:  whys,
 		Possible:  classes(all),
 	}
 }
 
+// leaves says where the ways through leave the machine. They may leave by different interfaces:
+// out is the first that leaves at all, and outs every interface a way through gets as far as,
+// which one the walked rules stop does not.
+func leaves(all []Result) (out string, outs []string) {
+	outs = []string{}
+	for _, r := range all {
+		if out == "" {
+			out = r.Out
+		}
+		if r.Out != "" && r.Class != Filtered && r.Class != Rejected && !slices.Contains(outs, r.Out) {
+			outs = append(outs, r.Out)
+		}
+	}
+	return out, outs
+}
+
+// classes lists the ways the packet can end, one per way through. When a way through stopped
+// without an end the list would be short of one nobody knows, so there is none.
 func classes(all []Result) []Class {
 	seen := map[Class]bool{}
 	var out []Class
 	for _, r := range all {
-		if r.Class != Undecided && !seen[r.Class] {
+		if r.Class == Undecided {
+			return nil
+		}
+		if !seen[r.Class] {
 			seen[r.Class] = true
 			out = append(out, r.Class)
 		}
@@ -205,7 +351,7 @@ func (w *walker) result(c Class) Result {
 	if n := len(w.steps); n > 0 {
 		w.steps[n-1].Decisive = true
 	}
-	r := Result{Class: c, Steps: w.steps, FinalDst: w.p.dst, FinalPort: w.p.dport, Rewritten: w.p.rewritten}
+	r := Result{Class: c, Steps: w.steps, FinalDst: w.p.dst, FinalPort: w.p.dport, Rewritten: w.p.rewritten, Out: w.p.oif}
 	if c == Undecided {
 		r.Unknowns = []string{w.stop}
 		w.whys = append(w.whys, w.stop)
@@ -294,6 +440,10 @@ func (w *walker) walk(pr Probe) Result {
 		}
 	}
 
+	// The ingress chains of the interface it arrives on come first, before connection tracking.
+	if v := w.runHook(rules.HookIngress); v != vAccept {
+		return w.end(v)
+	}
 	if v := w.runHook(rules.HookPrerouting); v != vAccept {
 		return w.end(v)
 	}
@@ -360,7 +510,7 @@ func (w *walker) sees(t *rules.Table) bool {
 		return !w.p.v6
 	case "ip6":
 		return w.p.v6
-	case "inet":
+	case "inet", "netdev":
 		return true
 	}
 	return false
@@ -374,6 +524,9 @@ func (w *walker) runHook(hook string) verdict {
 	for _, bc := range w.e.hooks[hook] {
 		if !w.sees(bc.t) {
 			continue
+		}
+		if hook == rules.HookIngress && !named([]string{p.iif}, bc.c.Devs) {
+			continue // attached to other interfaces
 		}
 		if hook == rules.HookPrerouting && bc.eff > prioConntrack {
 			p.ctSeen = true
@@ -485,15 +638,19 @@ func (w *walker) rule(c *rules.Chain, r *rules.Rule) (rules.VerdictKind, string)
 			if !nat || p.pastRoute {
 				continue
 			}
-			to, port := p.dst, p.dport
+			to := p.dst
 			if x.Addr.IsValid() {
 				if x.Addr.Unmap().Is6() != p.v6 {
 					continue
 				}
+				if x.AddrHi.IsValid() && x.AddrHi != x.Addr {
+					return w.unfollowed(c, r, fmt.Sprintf("a rule in chain %s sends the packet to one address out of %s to %s, and the kernel picks which one for each sender", c.Name, x.Addr.Unmap(), x.AddrHi.Unmap()))
+				}
 				to = x.Addr.Unmap()
 			}
-			if x.Port != 0 {
-				port = x.Port
+			port, why := natPort(c, p.dport, x.Port, x.PortHi, x.Random)
+			if why != "" {
+				return w.unfollowed(c, r, why)
 			}
 			w.rewrite(c, r, to, port)
 			return rules.Accept, ""
@@ -506,9 +663,9 @@ func (w *walker) rule(c *rules.Chain, r *rules.Rule) (rules.VerdictKind, string)
 				w.step(StepRule, r, c.Name, "drop: redirect has no address to use on "+p.iif)
 				return rules.Drop, ""
 			}
-			port := p.dport
-			if x.Port != 0 {
-				port = x.Port
+			port, why := natPort(c, p.dport, x.Port, x.PortHi, x.Random)
+			if why != "" {
+				return w.unfollowed(c, r, why)
 			}
 			w.rewrite(c, r, to, port)
 			return rules.Accept, ""
@@ -529,6 +686,24 @@ func (w *walker) rule(c *rules.Chain, r *rules.Rule) (rules.VerdictKind, string)
 		}
 	}
 	return 0, ""
+}
+
+// natPort is the port a rewrite to the ports lo to hi gives a packet that came for port, the way
+// the kernel picks it for a new connection: the packet's own port when that already lies in the
+// range, and the first port of the range when it does not. why is set when the rule asks for a
+// random port, which nobody can tell ahead.
+func natPort(c *rules.Chain, port, lo, hi uint16, random bool) (to uint16, why string) {
+	switch {
+	case lo == 0:
+		return port, ""
+	case hi == 0 || hi == lo:
+		return lo, ""
+	case random:
+		return 0, fmt.Sprintf("a rule in chain %s sends the packet to a port out of %d to %d, picked at random", c.Name, lo, hi)
+	case lo <= port && port <= hi:
+		return port, ""
+	}
+	return lo, ""
 }
 
 func (w *walker) unfollowed(c *rules.Chain, r *rules.Rule, why string) (rules.VerdictKind, string) {

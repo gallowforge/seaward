@@ -1,0 +1,91 @@
+name: nft-sender-sets
+about: Senders told apart by what a set says of them: a set of twenty-four addresses and a network
+about: (being in it is all that counts), the same over IPv6, a verdict map with a verdict of its
+about: own for each of twenty senders, and a set that pairs eighteen senders with the port each
+about: may reach. Every element counts, the last as much as the first: the kernel looks a sender
+about: up in the whole set, and a scan asks about every sender a set tells apart.
+--- nft
+table inet filter {
+	set admins {
+		type ipv4_addr
+		flags interval
+		elements = {
+			198.51.100.2, 198.51.100.4, 198.51.100.6, 198.51.100.8, 198.51.100.10, 198.51.100.12,
+			198.51.100.14, 198.51.100.16, 198.51.100.18, 198.51.100.20, 198.51.100.22, 198.51.100.24,
+			198.51.100.26, 198.51.100.28, 198.51.100.30, 198.51.100.32, 198.51.100.34, 198.51.100.36,
+			198.51.100.38, 198.51.100.40, 198.51.100.42, 198.51.100.44, 198.51.100.46, 198.51.100.48,
+			198.51.100.128/26
+		}
+	}
+	set admins6 {
+		type ipv6_addr
+		elements = {
+			2001:db8:99::10, 2001:db8:99::11, 2001:db8:99::12, 2001:db8:99::13,
+			2001:db8:99::14, 2001:db8:99::15, 2001:db8:99::16, 2001:db8:99::17,
+			2001:db8:99::18, 2001:db8:99::19, 2001:db8:99::1a, 2001:db8:99::1b
+		}
+	}
+	map gate {
+		type ipv4_addr : verdict
+		elements = {
+			198.51.100.201 : accept, 198.51.100.202 : accept, 198.51.100.203 : accept, 198.51.100.204 : drop,
+			198.51.100.205 : jump refuse, 198.51.100.206 : accept, 198.51.100.207 : accept, 198.51.100.208 : accept,
+			198.51.100.209 : drop, 198.51.100.210 : jump refuse, 198.51.100.211 : accept, 198.51.100.212 : accept,
+			198.51.100.213 : accept, 198.51.100.214 : drop, 198.51.100.215 : jump refuse, 198.51.100.216 : accept,
+			198.51.100.217 : accept, 198.51.100.218 : accept, 198.51.100.219 : drop, 198.51.100.220 : jump refuse
+		}
+	}
+	chain refuse {
+		reject with tcp reset
+	}
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ip saddr @admins tcp dport 22 accept
+		ip6 saddr @admins6 tcp dport 22 accept
+		tcp dport 80 ip saddr vmap @gate
+		ip saddr . tcp dport {
+			198.51.100.60 . 8443, 198.51.100.63 . 443, 198.51.100.66 . 443, 198.51.100.69 . 443,
+			198.51.100.72 . 443, 198.51.100.75 . 443, 198.51.100.78 . 8443, 198.51.100.81 . 443,
+			198.51.100.84 . 443, 198.51.100.87 . 443, 198.51.100.90 . 443, 198.51.100.93 . 443,
+			198.51.100.96 . 8443, 198.51.100.99 . 443, 198.51.100.102 . 443, 198.51.100.105 . 443,
+			198.51.100.108 . 443, 198.51.100.111 . 443
+		} accept
+	}
+}
+--- listen
+host tcp :: 22 dual
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+host tcp 0.0.0.0 8443
+--- probes
+eth0 198.51.100.2 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.34 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.48 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.128 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.191 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.3 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.49 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.127 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.192 203.0.113.10 tcp 22 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:silent
+eth0 2001:db8:99::10 2001:db8:1::10 tcp 22 want:open
+eth0 2001:db8:99::1b 2001:db8:1::10 tcp 22 want:open
+eth0 2001:db8:99::1c 2001:db8:1::10 tcp 22 want:silent
+eth0 198.51.100.201 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.204 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.205 203.0.113.10 tcp 80 want:refused
+eth0 198.51.100.217 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.218 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.219 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.220 203.0.113.10 tcp 80 want:refused
+eth0 198.51.100.221 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.2 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.60 203.0.113.10 tcp 8443 want:open
+eth0 198.51.100.60 203.0.113.10 tcp 443 want:silent
+eth0 198.51.100.78 203.0.113.10 tcp 8443 want:open
+eth0 198.51.100.78 203.0.113.10 tcp 443 want:silent
+eth0 198.51.100.108 203.0.113.10 tcp 443 want:open
+eth0 198.51.100.108 203.0.113.10 tcp 8443 want:silent
+eth0 198.51.100.111 203.0.113.10 tcp 443 want:open
+eth0 198.51.100.111 203.0.113.10 tcp 8443 want:silent
+eth0 198.51.100.61 203.0.113.10 tcp 443 want:silent

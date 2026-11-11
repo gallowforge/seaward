@@ -9,3 +9,4 @@
 /docs/readme/build/
 *.test
 coverage.out
+/seaward

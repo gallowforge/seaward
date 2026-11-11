@@ -5,6 +5,12 @@ on:
   pull_request:
 permissions:
   contents: read
+# Naming the shell is what turns pipefail on: GitHub then runs every step as
+# "bash --noprofile --norc -eo pipefail" instead of "bash -e". Without it a step such as
+# "go test ... | tee lab.txt" passes when go test fails, because tee did not.
+defaults:
+  run:
+    shell: bash
 
 jobs:
   test:
@@ -27,7 +33,11 @@ jobs:
           npm run typecheck
           npm test
       - name: gofmt
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        run: |
+          # Asked on a line of its own, so that gofmt failing (a file it cannot parse) fails the
+          # step too, and is not taken for "nothing to format".
+          unformatted=$(gofmt -l .)
+          test -z "$unformatted" || { echo "$unformatted"; exit 1; }
       - name: vet and test
         run: |
           go vet ./...
@@ -211,7 +221,10 @@ jobs:
           addr=$(ip -4 route get 192.0.2.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')
           for to in 198.51.100.1 "$addr"; do
             # the port nobody allowed answers
-            sudo ip netns exec outside curl -fsS -m 5 "http://$to:8080/" | grep -qi nginx
+            # (Each answer goes to a file first: with pipefail, "curl | grep -q" can fail on a
+            # page that is right, when grep has seen enough and leaves curl writing to nobody.)
+            sudo ip netns exec outside curl -fsS -m 5 "http://$to:8080/" > answer.txt
+            grep -qi nginx answer.txt
             # the port the firewall stops stays shut
             # shut means dropped (curl gives up: 28) or refused (7), not some other failure
             code=0
@@ -222,8 +235,32 @@ jobs:
               *) echo "the connection to port 9000 failed in a way that proves nothing: curl exit $code"; exit 1 ;;
             esac
             # the port the firewall allows answers
-            sudo ip netns exec outside curl -fsS -m 5 "http://$to:9001/" | grep -q plain
+            sudo ip netns exec outside curl -fsS -m 5 "http://$to:9001/" > answer.txt
+            grep -q plain answer.txt
           done
+      - name: no hardware address in either snapshot
+        run: |
+          set -x
+          # The cable to the outside has an address the kernel made up a minute ago. It is in
+          # neither snapshot, in any section.
+          mac=$(cat /sys/class/net/sw-host/address)
+          for f in machine.snapshot script.snapshot; do
+            if grep -q -i -F "$mac" "$f"; then echo "$f holds a hardware address"; exit 1; fi
+            # The interface list is one line of JSON. It still names the cable, with the mask
+            # where its address was, and nothing in it has the shape of an address, of a bridge
+            # id, of a device id (this machine's network card has one made from its address) or
+            # of an alternative name made from an address.
+            sed -n '/^### ip-addr$/{n;p;}' "$f" > "$f.ifaces"
+            jq -e 'any(.[]; .ifname == "sw-host" and .address == "xx:xx:xx:xx:xx:xx")' "$f.ifaces"
+            if grep -q -i -E '"([0-9a-f]{2}:){5}[0-9a-f]{2}"|"[0-9a-f]{4}\.([0-9a-f]{1,2}:){5}[0-9a-f]{1,2}"|"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}"|[[,]"[a-z]{2}x[0-9a-f]{12}"' "$f.ifaces"; then
+              echo "$f: a hardware address is left in the interface list"; exit 1
+            fi
+          done
+          # The script and the binary mask alike: the same interfaces, the same fields masked.
+          fields='[.[] | [.ifname, .address, .broadcast, .permaddr, .parentdev, .altnames, .linkinfo.info_data.bridge_id, .linkinfo.info_slave_data.bridge_id]]'
+          binary=$(jq -c "$fields" machine.snapshot.ifaces)
+          script=$(jq -c "$fields" script.snapshot.ifaces)
+          test "$binary" = "$script"
       - name: summary
         if: always()
         run: |

@@ -622,6 +622,59 @@ func TestFirstNatRuleWins(t *testing.T) {
 	}
 }
 
+func TestRewriteToARange(t *testing.T) {
+	// A rewrite to a range of ports keeps the port the packet came for when it lies in the range
+	// and takes the first port of the range when it does not. The kernel lab proves both
+	// (scenarios nat-port-range and nft-nat-port-range).
+	h := machine(lis("0.0.0.0", 8000, "first"), lis("0.0.0.0", 8105, "kept"), lis("0.0.0.0", 8200, "dnat"))
+	nat := tbl("ip", "nat", base("PREROUTING", rules.HookPrerouting, "nat", -100, rules.Accept,
+		rule("redirect 80", tcp(), dport(80), &rules.Redirect{Port: 8000, PortHi: 8010}),
+		rule("redirect 8105", tcp(), dport(8105), &rules.Redirect{Port: 8100, PortHi: 8110}),
+		rule("redirect 8103", tcp(), dport(8103), &rules.Redirect{Port: 8100, PortHi: 8110}),
+		rule("dnat 82", tcp(), dport(82), &rules.DNAT{Addr: ip(me), Port: 8200, PortHi: 8210}),
+		rule("dnat 8203", tcp(), dport(8203), &rules.DNAT{Addr: ip(me), Port: 8200, PortHi: 8210}),
+		rule("one port", tcp(), dport(83), &rules.Redirect{Port: 8000, PortHi: 8000}),
+		rule("random", tcp(), dport(84), &rules.Redirect{Port: 8000, PortHi: 8010, Random: true}),
+		rule("random dnat", tcp(), dport(85), &rules.DNAT{Addr: ip(me), Port: 8200, PortHi: 8210, Random: true}),
+		rule("random, one port", tcp(), dport(86), &rules.Redirect{Port: 8000, Random: true}),
+		rule("addresses", tcp(), dport(87), &rules.DNAT{Addr: ip(me), AddrHi: ip("203.0.113.12"), Port: 8000}),
+		rule("one address", tcp(), dport(88), &rules.DNAT{Addr: ip(me), AddrHi: ip(me), Port: 8000})))
+	rs := ruleset(nat)
+	for _, c := range []struct {
+		port  uint16
+		class Class
+		final uint16
+	}{
+		{80, Open, 8000},   // outside the range: the first port
+		{8105, Open, 8105}, // inside the range: the port stays
+		{8103, Closed, 8103},
+		{82, Open, 8200},
+		{8203, Closed, 8203},
+		{83, Open, 8000},
+		{86, Open, 8000}, // nothing to pick from: random changes nothing
+		{88, Open, 8000},
+	} {
+		r := Run(rs, h, probe(world, me, c.port))
+		want(t, r, c.class)
+		if r.FinalPort != c.final {
+			t.Errorf("port %d ended on port %d, want %d", c.port, r.FinalPort, c.final)
+		}
+	}
+	// A random port or one address out of several is the kernel's pick: say so, and guess nothing.
+	for port, word := range map[uint16]string{84: "picked at random", 85: "picked at random", 87: "one address out of 203.0.113.10 to 203.0.113.12"} {
+		r := Run(rs, h, probe(world, me, port))
+		want(t, r, Undecided)
+		if len(r.Unknowns) != 1 || !strings.Contains(r.Unknowns[0], word) {
+			t.Errorf("port %d: unknowns %q, want one that says %q", port, r.Unknowns, word)
+		}
+	}
+	// A range of the other family does not match the packet at all.
+	six := Run(ruleset(tbl("inet", "nat", base("pre", rules.HookPrerouting, "nat", -100, rules.Accept,
+		rule("v6 range", tcp(), dport(80), &rules.DNAT{Addr: ip("2001:db8:1::10"), AddrHi: ip("2001:db8:1::12")})))),
+		machine(lis("0.0.0.0", 80, "nginx")), probe(world, me, 80))
+	want(t, six, Open)
+}
+
 func TestInterfaceAndReversePath(t *testing.T) {
 	h := machine(lis("0.0.0.0", 80, "nginx"))
 	h.Interfaces = append(h.Interfaces, host.Interface{Name: "wg0", Up: true, Addrs: []netip.Prefix{pfx("10.8.0.1/24")}})

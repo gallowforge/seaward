@@ -93,9 +93,10 @@ func (p *ruleParser) parseTarget(kind, name string, toks []token) []rules.Expr {
 		if !ok {
 			return unknownStmt("the DNAT target destination %s is not one seaward can read", dests[0])
 		}
+		d.Random = has("random")
 		return []rules.Expr{d}
 	case "REDIRECT":
-		r := &rules.Redirect{}
+		r := &rules.Redirect{Random: has("random")}
 		if v, ok := get("to-ports"); ok {
 			lo, hi, ok := natPorts(v)
 			if !ok {

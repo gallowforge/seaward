@@ -24,8 +24,8 @@ out() {
 	if [ -n "$2" ]; then printf '%s\n' "$2" | sed 's/^ *### / &/'; fi
 }
 
-# run NAME COMMAND...: if the command exists, run it and print its section; a failure is noted.
-run() {
+# get NAME COMMAND...: if the command exists, run it and keep its output in $o; a failure is noted.
+get() {
 	o=""
 	name=$1; shift
 	has "$1" || return 1
@@ -34,9 +34,20 @@ run() {
 	if [ $rc -ne 0 ] && { [ "$name" != docker-net ] || [ -z "$o" ]; }; then
 		errors="$errors$name: exit status $rc
 "
+		o=""
 		return 1
 	fi
-	out "$name" "$o"
+}
+
+# run NAME COMMAND...: the same, and print the output as a section.
+run() { get "$@" && out "$name" "$o"; }
+
+# mask: takes the hardware (MAC) addresses out of the interface list; nothing is read from
+# them. In turn: six or seven pairs of hex digits, nine or more (eight could be an IPv6
+# address), the tail of a bridge id, an alternative name made from the address (enx...), and a
+# device id in the shape of a UUID.
+mask() {
+	sed @MASKS@
 }
 
 root=no; [ "$(id -u 2>/dev/null)" = 0 ] && root=yes
@@ -53,11 +64,9 @@ run iptables-save iptables-save
 run ip6tables-save ip6tables-save
 if [ $legacy = no ]; then
 	# The legacy tables are separate kernel tables; include them only when they hold something.
+	# A listing that fails is noted like any other: rules may sit where nobody could look.
 	for t in iptables-legacy-save ip6tables-legacy-save; do
-		if has $t; then
-			o=$($tmo $t </dev/null 2>/dev/null)
-			if printf '%s\n' "$o" | grep -q '^\*'; then out $t "$o"; fi
-		fi
+		if get $t $t && printf '%s\n' "$o" | grep -q '^\*'; then out $t "$o"; fi
 	done
 fi
 run nft-json nft -j list ruleset
@@ -65,7 +74,7 @@ run ipset-save ipset save
 
 # The machine.
 run ss ss -Htulpn
-run ip-addr ip -j -d addr show
+if get ip-addr ip -j -d addr show; then out ip-addr "$(printf '%s\n' "$o" | mask)"; fi
 run ip-route-4 ip -j -4 route show table main
 run ip-route-6 ip -j -6 route show table main
 if has sysctl; then
@@ -130,5 +139,6 @@ if [ -n "$errors" ]; then out errors "${errors%?}"; fi
 `
 
 func script() string {
-	return strings.NewReplacer("@VERSION@", Version, "@TEMPLATE@", dockerInspectTemplate, "@PS@", dockerPSTemplate).Replace(scriptText)
+	return strings.NewReplacer("@VERSION@", Version, "@TEMPLATE@", dockerInspectTemplate, "@PS@", dockerPSTemplate,
+		"@MASKS@", maskSed()).Replace(scriptText)
 }

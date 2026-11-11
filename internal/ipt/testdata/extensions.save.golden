@@ -205,7 +205,7 @@ table ip nat (iptables)
     -A PREROUTING -p tcp -m tcp --dport 80 -j DNAT --to-destination 192.0.2.2-192.0.2.9:8000-8010 --random --persistent
       match l4proto in {6}
       match dport in {80}
-      dnat addr 192.0.2.2-192.0.2.9 port 8000-8010
+      dnat addr 192.0.2.2-192.0.2.9 port 8000-8010 random
     -A PREROUTING -p tcp -m tcp --dport 81 -j DNAT --to-destination :8080
       match l4proto in {6}
       match dport in {81}

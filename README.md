@@ -4,7 +4,7 @@ A firewall manager shows you a list: these ports are allowed, the rest are denie
 
 <p align="center"><a href="https://gallowforge.github.io/seaward/"><b>Live demo</b></a> &nbsp;·&nbsp; <a href="#quickstart"><b>Quickstart</b></a> &nbsp;·&nbsp; <a href="#how-it-works">How it works</a> &nbsp;·&nbsp; <a href="#what-it-does-not-see">Limits</a> &nbsp;·&nbsp; <a href="DESIGN.md">Design notes</a> &nbsp;·&nbsp; <a href="SECURITY.md">Security</a> &nbsp;·&nbsp; <a href="CHANGELOG.md">Changelog</a></p>
 
-<a href=".github/workflows/ci.yml#gh-dark-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/numbers-dark-phone.webp 2.835x"><source srcset="docs/readme/numbers-dark.webp 2x"><img src="docs/readme/numbers-dark.webp" width="840" alt="Seaward in five figures: 67 scenarios on the real kernel, 1,950 real packets compared, 0 disagreements, 964 tests, 1 file with no dependencies." loading="lazy"></picture></a><a href=".github/workflows/ci.yml#gh-light-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/numbers-light-phone.webp 2.835x"><source srcset="docs/readme/numbers-light.webp 2x"><img src="docs/readme/numbers-light.webp" width="840" alt="Seaward in five figures: 67 scenarios on the real kernel, 1,950 real packets compared, 0 disagreements, 964 tests, 1 file with no dependencies." loading="lazy"></picture></a>
+<a href=".github/workflows/ci.yml#gh-dark-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/numbers-dark-phone.webp 2.835x"><source srcset="docs/readme/numbers-dark.webp 2x"><img src="docs/readme/numbers-dark.webp" width="840" alt="Seaward in five figures: 80 scenarios on the real kernel, 2,105 real packets compared, 0 disagreements, 1,194 tests, 1 file with no dependencies." loading="lazy"></picture></a><a href=".github/workflows/ci.yml#gh-light-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/numbers-light-phone.webp 2.835x"><source srcset="docs/readme/numbers-light.webp 2x"><img src="docs/readme/numbers-light.webp" width="840" alt="Seaward in five figures: 80 scenarios on the real kernel, 2,105 real packets compared, 0 disagreements, 1,194 tests, 1 file with no dependencies." loading="lazy"></picture></a>
 
 <sub>The scenarios are rulesets loaded into the real kernel, each in a network namespace of its own; the packets are real connections and datagrams sent through them, and the engine has to call every one. The tests are the Go test cases plus the demo page's own. The file is the static binary on the releases page. Every picture here stages the real output of the binary, or the real demo page, as panes of glass.</sub>
 
@@ -22,9 +22,9 @@ A firewall manager shows you a list: these ports are allowed, the rest are denie
 
 ## Checked against the real kernel
 
-A model of a firewall is worth what the kernel says about it. Seaward's lab loads 67 written rulesets and 40 random ones into the real kernel, each inside a network namespace that is gone afterwards, sends 1,950 real packets through them and compares what happened with what the engine said. One difference fails the build. Then CI does the same on whole machines, one with ufw and one with firewalld, where Docker publishes a port neither allows: real connections from outside have to do what Seaward said they would.
+A model of a firewall is worth what the kernel says about it. Seaward's lab loads 80 written rulesets and 40 random ones into the real kernel, each inside a network namespace that is gone afterwards, sends 2,105 real packets through them and compares what happened with what the engine said. One difference fails the build. The scan is held to the same packets: a port the kernel answers on has to be a port the scan found by itself and calls reachable. Then CI does the same on whole machines, one with ufw and one with firewalld, where Docker publishes a port neither allows: real connections from outside have to do what Seaward said they would.
 
-<a href="internal/lab/scenarios#gh-dark-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/kernel-dark-phone.webp 2.835x"><source srcset="docs/readme/kernel-dark.webp 2x"><img src="docs/readme/kernel-dark.webp" width="840" alt="Checked against the real kernel. The lab's own summary: 67 scenarios, 40 random rulesets, 1,950 probes, 0 disagreements between the engine and the kernel." loading="lazy"></picture></a><a href="internal/lab/scenarios#gh-light-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/kernel-light-phone.webp 2.835x"><source srcset="docs/readme/kernel-light.webp 2x"><img src="docs/readme/kernel-light.webp" width="840" alt="Checked against the real kernel. The lab's own summary: 67 scenarios, 40 random rulesets, 1,950 probes, 0 disagreements between the engine and the kernel." loading="lazy"></picture></a>
+<a href="internal/lab/scenarios#gh-dark-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/kernel-dark-phone.webp 2.835x"><source srcset="docs/readme/kernel-dark.webp 2x"><img src="docs/readme/kernel-dark.webp" width="840" alt="Checked against the real kernel. The lab's own summary: 80 scenarios, 40 random rulesets, 2,105 probes, 0 disagreements between the engine and the kernel." loading="lazy"></picture></a><a href="internal/lab/scenarios#gh-light-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/kernel-light-phone.webp 2.835x"><source srcset="docs/readme/kernel-light.webp 2x"><img src="docs/readme/kernel-light.webp" width="840" alt="Checked against the real kernel. The lab's own summary: 80 scenarios, 40 random rulesets, 2,105 probes, 0 disagreements between the engine and the kernel." loading="lazy"></picture></a>
 
 ## When it cannot know, it says so
 
@@ -34,7 +34,7 @@ Some rules look inside the packet, and some hang on a set that could not be read
 
 ## Read a server from your laptop
 
-`seaward snapshot` saves what a scan reads as one text file: the rules, the listeners, the addresses and routes, Docker's published ports. Read it anywhere with `seaward scan -f`, on Linux or macOS, or drop it on the [demo page](https://gallowforge.github.io/seaward/), where the same engine runs in your browser and the file never leaves it. For a server you would rather not put a binary on, `seaward snapshot --script` prints the collector as a plain shell script, about 120 lines, to read before you run it.
+`seaward snapshot` saves what a scan reads as one text file: the rules, the listeners, the addresses and routes, Docker's published ports. Read it anywhere with `seaward scan -f`, on Linux or macOS, or drop it on the [demo page](https://gallowforge.github.io/seaward/), where the same engine runs in your browser and the file never leaves it. For a server you would rather not put a binary on, `seaward snapshot --script` prints the collector as a plain shell script, about 135 lines, to read before you run it.
 
 <a href="SECURITY.md#gh-dark-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/snapshot-dark-phone.webp 2.835x"><source srcset="docs/readme/snapshot-dark.webp 2x"><img src="docs/readme/snapshot-dark.webp" width="840" alt="Read a server from your laptop. A snapshot taken on the server as one text file, then scanned on another machine and in the browser." loading="lazy"></picture></a><a href="SECURITY.md#gh-light-mode-only"><picture><source media="(max-width: 767px)" srcset="docs/readme/snapshot-light-phone.webp 2.835x"><source srcset="docs/readme/snapshot-light.webp 2x"><img src="docs/readme/snapshot-light.webp" width="840" alt="Read a server from your laptop. A snapshot taken on the server as one text file, then scanned on another machine and in the browser." loading="lazy"></picture></a>
 
@@ -108,7 +108,7 @@ seaward snapshot --script > seaward-snapshot.sh     # read it, then copy it over
 sudo sh seaward-snapshot.sh > server.snapshot       # on the server
 ```
 
-A snapshot holds rules, addresses, listening ports, and the name, image and published ports of each container. It holds no container environment, command line, label or mount, and no keys. Under `sudo`, `snapshot -o` gives up root before it writes, so the file is yours and readable by you alone. [SECURITY.md](SECURITY.md) lists every command a scan runs.
+A snapshot holds rules, addresses, listening ports, and the name, image and published ports of each container. It holds no container environment, command line, label or mount, and no keys. Hardware (MAC) addresses are masked; [SECURITY.md](SECURITY.md) says what in a snapshot still points at one machine. Under `sudo`, `snapshot -o` gives up root before it writes, so the file is yours and readable by you alone. [SECURITY.md](SECURITY.md) lists every command a scan runs.
 
 ### In cron or CI
 
@@ -116,7 +116,7 @@ A snapshot holds rules, addresses, listening ports, and the name, image and publ
 seaward scan --check
 ```
 
-`--check` exits with status 3 when a port is exposed, 4 when none is exposed but a port is undecided or some rules could not be read, and 0 otherwise. Exposed means reachable although the firewall manager does not allow it, so on a machine with no firewall manager there is no list to compare with and the status is 0. `--json` prints the whole report, with every step of every packet.
+`--check` exits with status 3 when a port is exposed, 4 when none is exposed but a port is undecided, some rules could not be read or the scan stopped at a ceiling before it had asked everything, and 0 otherwise. Exposed means reachable although the firewall manager does not allow it, so on a machine with no firewall manager there is no list to compare with and the status is 0. `--json` prints the whole report, with every step of every packet, and `seaward why 5432 --json` does the same for one port.
 
 ### Build from source
 
@@ -133,8 +133,8 @@ make lab        # the engine against the real kernel, in private network namespa
 
 1. **It collects.** A fixed list of listing commands, each with a five second limit: the packet rules (`iptables-save`, `nft list ruleset`, `ipset save`), what is listening (`ss`), interfaces and routes (`ip`), the forwarding sysctls, Docker's containers and published ports, and what ufw or firewalld say they allow. That is the whole snapshot.
 2. **It reads both listings of the rules.** On a current system iptables and nft write into the same kernel tables, and neither listing is complete alone. iptables-save has no words for some of what nft can write and, as of version 1.8.13, prints it wrongly without a warning: the rule `tcp dport { 25, 587 } accept` comes out as `-A INPUT -p tcp -j ACCEPT`, and a lookup in a named set as a bare `-A INPUT -j ACCEPT`. Seaward settles the two listings rule by rule and takes each rule from the one that can say it.
-3. **It walks a packet.** The first packet of a new connection goes through the hooks in the kernel's order: prerouting, where a rule may rewrite its destination; routing, which decides between this machine and somewhere else; then input and the listening sockets, or forward and the container behind it. Tables, priorities, jumps, returns, sets, verdict maps, marks and connection state behave as they do in the kernel.
-4. **It asks from everywhere.** Each outside interface is a place a packet can come from: the internet, the local network, VPN peers. The rules tell senders apart by address, so Seaward collects every such condition and follows one packet for each group the rules single out, plus one for everybody else. Two senders no rule tells apart are treated alike by every rule, so this covers every sender the rules can tell apart and is not a sample.
+3. **It walks a packet.** The first packet of a new connection goes through the hooks in the kernel's order: the ingress chains of the interface it arrives on; prerouting, where a rule may rewrite its destination; routing, which decides between this machine and somewhere else; then input and the listening sockets, or forward and the container behind it. Tables, priorities, jumps, returns, sets, verdict maps, marks and connection state behave as they do in the kernel.
+4. **It asks from everywhere.** Each outside interface is a place a packet can come from: the internet, the local network, VPN peers. From each, packets go to every address the machine holds, including a spare one on the loopback or a bridge's, because Linux answers for all of them. The rules tell senders apart by address, so Seaward collects every such condition, cuts the address space wherever one of them starts or ends, and follows one packet for each group the rules single out, plus one for everybody else. Two senders no rule tells apart are treated alike by every rule, so this covers every sender the rules can tell apart and is not a sample, up to the ceiling of 1,024 groups, and it says so when the ceiling is reached. The ports asked about are everything that listens, everything Docker publishes, everything the firewall manager names and every TCP or UDP port whose packets can come as far as a rule that sends them somewhere else, whether that rule names the port itself or stands in a chain that the rule naming it jumps to. A range of more than 16 ports is asked at its ends and wherever a rule, a listener or the target of a rewrite sets a port apart, and a count that includes such a port reads "at least". The ceiling for ports is 4,096. A report that reaches a ceiling lists what was not asked at the top and claims nothing about it: "nothing was found reachable", "at least 3 ports", "nobody that was asked".
 5. **It gives each port one finding**, with the reason in a sentence and the deciding rule:
 
 | Finding | Meaning |
@@ -142,7 +142,7 @@ make lab        # the engine against the real kernel, in private network namespa
 | `exposed` | Reachable from outside although the firewall manager does not allow it |
 | `open` | Reachable from outside as the firewall manager allows, or by anyone when there is no manager |
 | `limited` | No firewall manager, and the rules let only some senders in: one network, a set, VPN peers |
-| `undecided` | Hangs on something Seaward cannot see; the reason is given |
+| `undecided` | Hangs on something Seaward cannot see, or the scan stopped before it had asked every sender; the reason is given |
 | `local` | Reachable from this machine only |
 | `blocked` | Something listens and the rules stop every packet |
 | `shadowed` | The firewall manager allows it, yet an earlier rule stops it |
@@ -154,7 +154,9 @@ make lab        # the engine against the real kernel, in private network namespa
 ### What it does not see
 
 - **Anything in front of the machine.** A cloud firewall, a security group, a router. Seaward says what this machine lets in, and every scan report says so.
-- **Parts of the kernel it does not model:** eBPF programs (XDP, tc, cgroup), IPVS, bridge filtering, IPsec, policy routing beyond the main table, reverse-path filtering and the kernel's refusal of impossible source addresses. Replies are assumed to get out.
+- **Parts of the kernel it does not model:** eBPF programs (XDP, tc, cgroup), IPVS, IPsec, policy routing beyond the main table, reverse-path filtering and the kernel's refusal of impossible source addresses. Replies are assumed to get out.
+- **Chains it does not follow.** nftables chains on an egress hook or in a bridge table are not walked rule by rule. A port whose packets pass one is reported as undecided, and the chain is named.
+- **Protocols other than TCP and UDP, in a scan.** A scan has rows for TCP and UDP ports. `seaward why 5000/sctp --from 198.51.100.7` follows one packet of SCTP, DCCP or UDP-Lite.
 - **Rate limits beyond the first packet.** A rule that lets the first connection through and slows the tenth counts as letting it through.
 - **Rules on the sender's port.** The packets Seaward follows leave from an ordinary high port, so a rule that lets in one source port only is not flagged.
 - **Link-local, multicast and broadcast traffic.** The scan follows no packet to those addresses, so firewalld's DHCPv6 opening appears in its list and nowhere else, and DHCP is not judged.
@@ -165,8 +167,8 @@ A rule Seaward has no model for is never skipped silently. It makes the port und
 
 ## Quality
 
-- **964 automated tests** run on every change: 919 Go test cases with the race detector, and 45 for the demo page.
-- **The kernel is the judge.** 67 scenarios and 40 random rulesets, 1,950 real packets, 0 disagreements. A scenario also states what a person expects, so a wrong belief about the kernel fails the build as well as a wrong engine.
+- **1,194 automated tests** run on every change: 1,116 Go test cases with the race detector, and 78 for the demo page.
+- **The kernel is the judge.** 80 scenarios and 40 random rulesets, 2,105 real packets, 0 disagreements. A scenario also states what a person expects, so a wrong belief about the kernel fails the build as well as a wrong engine.
 - **Two whole machines.** CI turns on ufw on one runner and firewalld on another, publishes a container past each, and compares Seaward's answer for three ports with real connections from outside.
 - **No condition is dropped.** A test goes through every option of every rule in the fixtures and fails unless each is either modelled or surfaces as unknown.
 - **Seven fuzz targets** cover the parsers for rules, sets, sockets, ufw and the snapshot format.

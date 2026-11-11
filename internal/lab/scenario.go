@@ -105,8 +105,12 @@ type Scenario struct {
 	Containers int
 	// Forward is "yes", "no" or "" (then forwarding is on exactly when there are containers).
 	Forward string
-	Eth1    bool     // add the second outside interface even if no probe uses it
-	Sysctls []string // extra "key=value" lines set in the host after the interfaces exist
+	Eth1    bool // add the second outside interface even if no probe uses it
+	// Loopback lists spare addresses the host holds on its loopback interface, as a machine with
+	// a floating or anycast address does. Each lies in eth0's subnet, so the peer reaches it
+	// over the cable without a route.
+	Loopback []netip.Addr
+	Sysctls  []string // extra "key=value" lines set in the host after the interfaces exist
 	// Publish is Docker's view of the published ports, "0.0.0.0:8080->80/tcp", one per entry.
 	// The NAT and filter rules themselves are written in the iptables block.
 	Publish         []string
@@ -276,6 +280,12 @@ func ParseScenario(name, text string) (*Scenario, error) {
 				sc.Forward = val
 			case "eth1":
 				sc.Eth1 = val == "yes"
+			case "loopback":
+				a, err := netip.ParseAddr(val)
+				if err != nil || a.Zone() != "" {
+					return nil, errf(n, "loopback: an address in 203.0.113.0/24 or 2001:db8:1::/64")
+				}
+				sc.Loopback = append(sc.Loopback, a)
 			case "sysctl":
 				k, v, ok := strings.Cut(val, "=")
 				if !ok || !validSysctl(strings.TrimSpace(k)) || !validToken(strings.TrimSpace(v)) {
@@ -356,7 +366,17 @@ func (sc *Scenario) validate() error {
 		}
 		seen[key] = true
 	}
+	spare := map[netip.Addr]bool{}
+	for _, a := range sc.Loopback {
+		if !inAny(a, eth0Link) || a == hostEth0v4 || a == hostEth0v6 || a == peerEth0v4 || a == peerEth0v6 || spare[a] {
+			return fmt.Errorf("loopback %s: use a free address in 203.0.113.0/24 or 2001:db8:1::/64, once", a)
+		}
+		spare[a] = true
+	}
 	for _, p := range sc.Probes {
+		if spare[p.Src] {
+			return fmt.Errorf("probe %q: the source is one of the host's loopback addresses", p)
+		}
 		if why := checkSource(p.Iif, p.Src); why != "" {
 			return fmt.Errorf("probe %q: %s", p, why)
 		}
@@ -472,6 +492,9 @@ func (sc *Scenario) Format(wants map[int]Outcome) string {
 	}
 	if sc.Eth1 {
 		b.WriteString("eth1: yes\n")
+	}
+	for _, a := range sc.Loopback {
+		fmt.Fprintf(&b, "loopback: %s\n", a)
 	}
 	for _, s := range sc.Sysctls {
 		fmt.Fprintf(&b, "sysctl: %s\n", s)

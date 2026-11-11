@@ -324,13 +324,14 @@ func isAny(e rules.Elem) bool {
 type natTarget struct {
 	a, ahi netip.Addr
 	p, phi uint16
+	random bool // the statement asks for a random port
 }
 
 func (t natTarget) expr(redirect bool) rules.Expr {
 	if redirect {
-		return &rules.Redirect{Port: t.p, PortHi: t.phi}
+		return &rules.Redirect{Port: t.p, PortHi: t.phi, Random: t.random}
 	}
-	return &rules.DNAT{Addr: t.a, AddrHi: t.ahi, Port: t.p, PortHi: t.phi}
+	return &rules.DNAT{Addr: t.a, AddrHi: t.ahi, Port: t.p, PortHi: t.phi, Random: t.random}
 }
 
 func plainAddr(n *node) (netip.Addr, bool) {
@@ -415,9 +416,10 @@ func (c *ctx) nat(key string, v *node) {
 	case "ip6":
 		c.need(keyPart{nf: 6})
 	}
-	netmap := o.has("type_flags")
+	netmap, random := o.has("type_flags"), false
 	for _, f := range o.get("flags").strs() {
 		netmap = netmap || f == "netmap"
+		random = random || f == "random" || f == "fully-random"
 	}
 	if netmap {
 		c.stop(fmt.Sprintf("the %s statement maps a whole network onto another one, which seaward does not model", key))
@@ -433,7 +435,7 @@ func (c *ctx) nat(key string, v *node) {
 		pn.obj().one()
 		mapN, inPort = m, true
 	}
-	var fixed natTarget
+	fixed := natTarget{random: random}
 	ok := true
 	if !an.null() && (mapN == nil || inPort) {
 		fixed.a, fixed.ahi, ok = natAddr(an)

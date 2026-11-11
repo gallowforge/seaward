@@ -1,0 +1,21 @@
+name: bridge-address-from-outside
+about: A service bound to the Docker bridge's own address is not out of reach from outside. A
+about: machine on eth0's network can send a packet for 172.17.0.1 through this one, and the kernel
+about: takes it like a packet for any other address it holds. A rule that looks at the interface
+about: the packet arrived on is what keeps such a service to the containers.
+container: yes
+--- iptables
+*filter
+:INPUT ACCEPT [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -d 172.17.0.1/32 ! -i docker0 -p tcp -m tcp --dport 9001 -j DROP
+COMMIT
+--- listen
+host tcp 172.17.0.1 9000
+host tcp 172.17.0.1 9001
+--- probes
+eth0 203.0.113.50 172.17.0.1 tcp 9000 want:open
+eth0 198.51.100.7 172.17.0.1 tcp 9000 want:open
+eth0 203.0.113.50 172.17.0.1 tcp 9001 want:silent
+eth0 203.0.113.50 203.0.113.10 tcp 9000 want:refused

@@ -1,0 +1,60 @@
+name: many-allowed-senders
+about: Twenty rules that each let one sender in to the same port, and one more that refuses a
+about: sender. Every one of the twenty gets through, the last as surely as the first; an address
+about: between two of them, which no rule names, does not. A scan asks about each of them:
+about: there is no count past which senders are no longer told apart.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -s 198.51.100.8/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.16/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.24/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.32/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.40/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.48/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.56/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.64/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.72/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.80/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.88/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.96/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.104/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.112/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.120/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.128/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.136/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.144/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.152/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.160/32 -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -s 198.51.100.200/32 -p tcp -m tcp --dport 22 -j REJECT --reject-with tcp-reset
+COMMIT
+--- listen
+host tcp 0.0.0.0 22
+--- probes
+eth0 198.51.100.8 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.16 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.24 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.32 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.40 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.48 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.56 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.64 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.72 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.80 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.88 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.96 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.104 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.112 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.120 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.128 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.136 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.144 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.152 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.160 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.9 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.100 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.161 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.200 203.0.113.10 tcp 22 want:refused
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:silent

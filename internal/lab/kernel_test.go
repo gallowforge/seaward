@@ -5,11 +5,13 @@ package lab
 import (
 	"context"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -70,6 +72,7 @@ func TestKernel(t *testing.T) {
 	}
 
 	reps := make([]*Report, len(scs))
+	unasked := make([]string, len(scs))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	for w := 0; w < workers; w++ {
@@ -87,6 +90,17 @@ func TestKernel(t *testing.T) {
 					os.WriteFile(filepath.Join(keep, scs[i].Name+".snapshot"), []byte(run.Snapshot), 0o644)
 				}
 				reps[i] = Judge(run, record, EnginePredictor)
+				// The scan is held against the kernel too: a port the kernel answers on has to
+				// be a port the scan asks about by itself.
+				if run.Err == nil && !record {
+					missed, err := Unasked(run.Snapshot, scs[i].Probes, run.Reals)
+					for _, m := range missed {
+						unasked[i] += fmt.Sprintf("\n  %s: %s", scs[i].Name, m)
+					}
+					if err != nil {
+						unasked[i] += fmt.Sprintf("\n  %s: %v", scs[i].Name, err)
+					}
+				}
 			}
 		}()
 	}
@@ -115,16 +129,28 @@ func TestKernel(t *testing.T) {
 		if r.Failed() && r.Run.Counters != "" {
 			t.Logf("%s kernel counters: %s", r.Run.Scenario.Name, r.Run.Counters)
 		}
+		// The table below has room for the first line of a failure only; the rest, what the
+		// scenario's script printed before it gave up, says which rule the kernel would not load.
+		if r.Err != nil && testing.Verbose() {
+			t.Logf("%s failed: %v", r.Run.Scenario.Name, r.Err)
+		}
 	}
 	sum := Summarize(reps, mode, seed)
 	sum.Seconds = time.Since(start).Seconds()
-	t.Logf("%d scenarios, %d random rulesets, %d probes, %d wants matched, %d want mismatches, %d disagreements, %d undecided, %d failed runs; slowest scenario %s, slowest answer %d ms; %.1fs with %d workers",
-		sum.Scenarios, sum.Rulesets, sum.Probes, sum.WantMatched, sum.WantMismatches, sum.Disagreements, sum.Undecided, sum.FailedRuns,
-		slowest.Round(time.Millisecond), maxMS, sum.Seconds, workers)
+	// The counts stand on a line of their own: they are the same on every run and on every
+	// machine, so they can be quoted (the README's pictures do). How long it took is not, and is
+	// said in a second line short enough to stay one line in a terminal: go test prints the
+	// whole run's time itself, and the summary file has it.
+	t.Logf("%d scenarios, %d random rulesets, %d probes, %d wants matched, %d want mismatches, %d disagreements, %d undecided, %d failed runs",
+		sum.Scenarios, sum.Rulesets, sum.Probes, sum.WantMatched, sum.WantMismatches, sum.Disagreements, sum.Undecided, sum.FailedRuns)
+	t.Logf("slowest scenario %s, answer %d ms", slowest.Round(time.Millisecond), maxMS)
 	if p := os.Getenv("SEAWARD_LAB_SUMMARY"); p != "" {
 		if err := WriteSummary(p, sum); err != nil {
 			t.Error(err)
 		}
+	}
+	if missed := strings.Join(unasked, ""); missed != "" {
+		t.Errorf("ports the kernel answers on and a scan does not account for:%s", missed)
 	}
 	if table := FormatTable(reps); table != "" {
 		t.Errorf("problems:\n%s", table)

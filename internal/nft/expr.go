@@ -314,7 +314,13 @@ func keyOf(n *node, family string) keyPart {
 	case "payload":
 		return payloadKey(o)
 	case "meta":
-		return metaKey(o)
+		p := metaKey(o)
+		if family == "netdev" && p.k == kNFProto {
+			// In a netdev table the kernel answers this with the table's own family, not the
+			// packet's, so it does not tell IPv4 from IPv6 there.
+			p.why = notModelled(p.name, "does not tell IPv4 from IPv6 in a netdev table")
+		}
+		return p
 	case "ct":
 		return ctKey(o, family)
 	case "":

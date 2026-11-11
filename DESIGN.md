@@ -74,12 +74,12 @@ version does not read.
 | `iptables-version` | `iptables -V` | says `(nf_tables)` or `(legacy)` |
 | `iptables-save` | `iptables-save` | |
 | `ip6tables-save` | `ip6tables-save` | |
-| `iptables-legacy-save` | `iptables-legacy-save` | only when the default is nf_tables and the legacy tool exists and prints rules |
-| `ip6tables-legacy-save` | `ip6tables-legacy-save` | same |
+| `iptables-legacy-save` | `iptables-legacy-save` | only when the default is nf_tables and the legacy tool exists and prints rules; when the tool fails, an `errors` line, as for any other command |
+| `ip6tables-legacy-save` | `ip6tables-legacy-save` | only when the default is nf_tables and the legacy tool exists and prints rules; when the tool fails, an `errors` line, as for any other command |
 | `nft-json` | `nft -j list ruleset` | one JSON document |
 | `ipset-save` | `ipset save` | |
 | `ss` | `ss -Htulpn` | host listeners |
-| `ip-addr` | `ip -j -d addr show` | JSON; `-d` gives `linkinfo.info_kind` |
+| `ip-addr` | `ip -j -d addr show` | JSON; `-d` gives `linkinfo.info_kind`. Hardware addresses are masked before the section is written (`hardwareMasks`). |
 | `ip-route-4` | `ip -j -4 route show table main` | JSON |
 | `ip-route-6` | `ip -j -6 route show table main` | JSON |
 | `sysctl` | `sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding` then `sysctl -a -r 'net\.ipv4\.conf\..*\.route_localnet'` | `key = value` lines |
@@ -105,6 +105,11 @@ snapshot describes this machine and never a remote one. The only values that tra
 output into a command line are container ids (hex only), a container's process id (digits only) and
 firewalld service names (checked by `safeName`). `argvFor` is the only place a command line is built.
 
+Both take the hardware addresses out of the interface list with the same five substitutions, written
+once in `hardwareMasks` as the expressions the script hands to `sed`; a test runs both over the same
+texts and wants the same bytes. [SECURITY.md](SECURITY.md) says what each of the five masks and
+what in a snapshot still points at one machine.
+
 ### What `Build` adds
 
 - A host socket with no program name, in a snapshot taken as root, belongs to **the kernel**
@@ -114,10 +119,14 @@ firewalld service names (checked by `safeName`). `argvFor` is the only place a c
 - **Rule sources nobody could read** go to `Ruleset.Unread`, each with one sentence
   (`"The IPv4 packet rules (iptables) could not be read: iptables-save needs root."`). Five cases:
   a listing that will not parse; an nft document that will not parse (both families); an `errors`
-  line for a rule section; an iptables listing that says a table is "incompatible" while the nft
-  listing is missing; no rule section at all in a snapshot taken without root. Rules nobody read may
-  stop or redirect anything, so **the engine decides nothing for a family while one of its sources
-  is unread**.
+  line for a rule section, the legacy pair included; an iptables listing that says a table is
+  "incompatible" while the nft listing is missing; no rule section at all in a snapshot taken
+  without root. Rules nobody read may stop or redirect anything, so **the engine decides nothing
+  for a family while one of its sources is unread**.
+- **What an interface sits on.** `Interface.Master` is the bridge or bond it is a port of and
+  `Interface.Lower` the interface a VLAN or MACVLAN sits on, from `master` and `link` of the
+  interface list. A packet that arrives on a bridge came in through one of its ports, so a chain on
+  a port is on its way (see "Chains outside the walked path").
 
 ## The firewall model
 
@@ -168,6 +177,14 @@ See `internal/rules/rules.go`; the comments there are the specification. The poi
   and a key built from the set's type: an `ip`/`net` dimension is `FSaddr` or `FDaddr`, a `port`
   dimension is two fields (`FL4Proto`, then `FSport` or `FDport`), an `iface` dimension is
   `FIifName` or `FOifName`. A set that was not captured is `Unknown`.
+- **NAT to a range** (`--to-destination 203.0.113.50:8000-8010`, `--to-ports 8000-8010`,
+  `dnat to 203.0.113.50:8000-8010`, `redirect to :8000-8010`) keeps both ends: `DNAT.Port` and
+  `PortHi`, `Addr` and `AddrHi`, the same for `Redirect`. `Random` is set by `--random` and by the
+  nft flags `random` and `fully-random`. The engine gives the packet the port the kernel would:
+  **the port it came for when that already lies in the range, the first port of the range when it
+  does not**. A random port and a range of addresses (the kernel picks one by who sent the packet)
+  cannot be told ahead, so those packets are undecided, with the rule named. The lab scenarios
+  `nat-port-range` and `nft-nat-port-range` hold this against the kernel.
 
 ### Reading nftables (`internal/nft`)
 
@@ -189,11 +206,26 @@ written entirely the way iptables-nft writes rules, and from the nft listing oth
 are matched by position, which holds only while they agree on a chain's length; where they do not,
 the chain is read from the nft listing alone, its `xt` parts become `Unknown`, and a note says so.
 
-It reads `ip`, `ip6` and `inet` tables; named, anonymous, interval and concatenated sets; verdict
-maps; reject, dnat, redirect, mark set and copy, limits, notrack. Other families (`bridge`, `arp`,
-`netdev`) are noted and skipped. What the model is too thin for, each reported and never guessed:
-data-map values (a `dnat to ... map`), masks with gaps, the mark in `fib saddr . mark . iif`; dnat
-to a range uses the first address.
+It reads `ip`, `ip6`, `inet` and `netdev` tables; named, anonymous, interval and concatenated sets;
+verdict maps; reject, dnat, redirect, mark set and copy, limits, notrack. What the model is too
+thin for, each reported and never guessed: data-map values (a `dnat to ... map`), masks with gaps,
+the mark in `fib saddr . mark . iif`, `meta nfproto` in a netdev table, and a dnat to a range of
+addresses (see "NAT to a range" above).
+
+**Chains on the ingress hook** (`type filter hook ingress device eth0`, in a `netdev` or an `inet`
+table) become base chains with `Hook: "ingress"` and `Chain.Devs`, the interfaces they are attached
+to (`eth*` is every interface whose name starts that way). The engine walks them first.
+
+**Chains outside the walked path** are not read rule by rule. A base chain on an egress hook, any
+base chain of a `bridge` table, and a chain on a hook this version does not know each become one
+`rules.Unfollowed` entry: a sentence that names the chain, the interfaces whose arriving (`In`) or
+leaving (`Out`) packets it sees, `BridgeIn` and `BridgeOut` for a bridge table, and `OnlyStops`,
+true when no rule of it does more than look, count, log, drop or accept. A walked ingress chain
+gets an entry too (`Walked`), for the packets that pass its interface underneath the one they
+arrive on: a port of a bridge or bond, the interface a VLAN sits on. A chain with no rules and an
+accept policy, a bridge chain on the forward hook (frames switched between ports never enter the
+IP path), a table switched off with `flags dormant` and an `arp` table are a note and nothing
+more.
 
 **Verdict maps and `continue`, as the kernel does it:** a verdict map with no entry for the packet
 ends the rule, like a failed match. An entry that says `continue` goes on to the next expression of
@@ -205,10 +237,15 @@ one per element.
 One packet: the first packet of a new connection (TCP SYN or one UDP datagram), arriving on a named
 interface, from one source address to one destination address and port.
 
+0. **Ingress.** Every base chain on the ingress hook that is attached to the interface the packet
+   arrives on, lowest priority first, whatever its table's family. This comes before connection
+   tracking, so `ct state` reads `invalid` there for every packet and nothing has been rewritten
+   yet. A drop ends everything; an accept ends that chain only, and the next one still runs.
 1. **Prerouting.** Every base chain on the prerouting hook whose table sees this packet's family
-   (`ip` sees IPv4, `ip6` sees IPv6, `inet` sees both), lowest priority first. In a filter chain,
+   (`ip` sees IPv4, `ip6` sees IPv6, `inet` and `netdev` see both), lowest priority first. In a filter chain,
    drop ends everything and accept moves to the next base chain. In a nat chain the first DNAT or
-   REDIRECT that runs rewrites the destination and no later nat chain on this hook is consulted.
+   REDIRECT that runs rewrites the destination and no later nat chain on this hook is consulted
+   (to a range of ports: see "NAT to a range").
    All nat chains of a hook really run at one fixed place (-100 on prerouting and output, 100 on
    input and postrouting); a nat chain's declared priority only orders it among the other nat
    chains. Connection tracking starts at -200: a chain before it sees a packet with no connection
@@ -225,10 +262,22 @@ interface, from one source address to one destination address and port.
 4. **Unknowns.** When a condition is `Unknown` the walk follows both answers (up to a cap). If every
    branch ends the same way the result stands; otherwise the result is `Undecided` and names what it
    hangs on.
+5. **What was not seen.** Rules nobody could read (`Ruleset.Unread`) and chains outside the walked
+   path (`Ruleset.Unfollowed`) come last. A packet passes an unfollowed chain when the chain sees
+   the interface it arrives on, or anything underneath that interface (`Engine.stack`: the ports of
+   a bridge or bond, what a VLAN sits on), or the interface it leaves through. When the ways
+   through leave by different interfaces, every one of them counts, except a way the walked rules
+   stop before it leaves. Such a packet is `Undecided`, with the chain's sentence in
+   `Result.Unknowns`. A chain that can only stop packets (`OnlyStops`) leaves more standing: a
+   packet the walked rules drop stays `Filtered`, and for any other `Result.Otherwise` keeps how
+   the walk ended, since the packet is dropped there or ends that way and nothing else.
 
 Results: `Open` (a program received it), `Closed` (it got through and nothing was listening),
 `Rejected` (a rule refused it out loud), `Filtered` (dropped without a word), `Forwarded` (let
 through to another machine), `Undecided` (with `Result.Possible`: the ways it can end).
+`Possible` is a whole list or none: when a way through stopped at something the model does not
+follow (a `UnknownStmt`, more conditions than the cap), nobody knows every way the packet can end,
+and the list stays empty. `Result.Out` is the interface a forwarded packet leaves through.
 
 Every result carries its `Steps`: each rule that matched, each jump into another chain, each policy,
 the routing decision and the delivery, with the rule's own text and what it did in plain words
@@ -237,9 +286,10 @@ the routing decision and the delivery, with the rule's own text and what it did 
 sent it somewhere else. Those two are what the report shows.
 
 What the walk does not model, and says so: replies (it assumes the answer can leave), the
-`rp_filter` sysctl and martian sources, rate limits beyond the first packet, bridge filtering
-(`br_netfilter`), eBPF programs (XDP, tc, cgroup), IPVS, policy routing (only the main table is
-read), IPsec, DHCP broadcast, and anything in front of the machine (a cloud firewall, a router).
+`rp_filter` sysctl and martian sources, rate limits beyond the first packet, the rules of bridge
+tables and of egress hooks (a packet that passes one is undecided, as above) and `br_netfilter`,
+eBPF programs (XDP, tc, cgroup), IPVS, policy routing (only the main table is read), IPsec, DHCP
+broadcast, and anything in front of the machine (a cloud firewall, a router).
 A probe leaves from an ordinary high port, so a rule that accepts by source port is not flagged.
 
 ## The report (`internal/scan`)
@@ -251,20 +301,106 @@ it as it is.
    internet behind a default route), `lan` (the network the interface is plugged into), `vpn`
    (WireGuard, tun and the like). Interfaces that lead to the machine's own containers (veth,
    bridges, `docker0`) are inside, not a vantage.
-2. **Who is sending.** The rules tell senders apart by address (a prefix, a set, the firewall
-   manager's own list). Every such condition is collected; one address stands for "everyone else"
-   and one more for each group some rule singles out. Two senders no rule tells apart get the same
-   treatment everywhere, so this is exhaustive for source addresses, not a sample.
-3. **Which ports.** Everything that listens on the machine, every port Docker publishes, every port
-   a DNAT or redirect rule names, and every port the firewall manager mentions.
-4. **One finding per port**, from all its packets together:
+2. **Which addresses they are sent to.** The interface's own, and the machine's addresses
+   elsewhere (`elsewhere`): a spare address on the loopback or on a dummy interface, a bridge's
+   address, another card's. Linux takes a packet for any address it holds, whichever interface it
+   arrives on. From the network the interface is plugged into all of them are asked; from the wide
+   world only the public ones, which are the ones it can route. `127.0.0.0/8` and link-local
+   addresses are never aimed at. An answer at an address elsewhere gets a line only when it says
+   something the interface's own address did not ("nothing listens there" is not repeated), and a
+   packet that gets through there says so: "The packet is for 203.0.113.99, an address on lo".
+   The lab scenarios `address-on-loopback` and `bridge-address-from-outside` hold this against
+   the kernel.
+3. **Who is sending.** The rules tell senders apart by address: a prefix or a range in a rule, a
+   set, the firewall manager's own list. Every such condition is a predicate (`sourcePreds`). A set
+   that is matched alone is one predicate, since being in it is all that counts; a verdict map,
+   and a set that holds an address beside another field, may treat each element differently, so
+   each element is a predicate of its own. A predicate keeps its ranges sorted, with the
+   overlapping ones run together, and is searched by halving (`newPred`).
+
+   Each address family is then cut into stretches (`atlas`): at the start of every range a
+   predicate names and right after its end, and at the same two points of everything that decides
+   whether an address can be a sender at all (the machine's own addresses and networks with their
+   first and last address, every route, the loopback, link-local, multicast and unspecified
+   ranges, the IPv4 addresses written as IPv6 ones). Every address of a stretch is in the same
+   predicates as its first one and is as possible a sender, so the first address of each stretch
+   stands for all of it. One sender is
+   asked per distinct set of predicates, at the first stretch of it that can send from the place
+   in question (`sender`): one address for "everyone else", taken from the documentation networks
+   or the interface's neighbours, and one more for each group some rule singles out. Two senders
+   no rule tells apart get the same treatment everywhere, so **this is exhaustive for source
+   addresses, not a sample, up to the ceiling of 1,024 groups, and it says so when the ceiling is
+   reached**: a test goes through every address of a few networks one by one, for random rules,
+   and wants each of them covered.
+
+   The ceiling is `maxClasses`, 1,024 groups from one place over one address family. A ruleset
+   that tells more apart (more than a thousand rules that each name a sender, or a verdict map
+   that long) is asked about the 1,024 groups the fewest rules single out. The senders beyond
+   those were not asked, and the report then claims nothing about them (see "At a ceiling" below).
+4. **Which ports.** Everything that listens on the machine, every port Docker publishes, every port
+   the firewall manager mentions, and every port whose packets can come as far as a statement
+   that sends them somewhere else: a rewrite of the destination (DNAT, redirect), or a statement
+   the engine cannot follow that may be one (TPROXY, a port set by hand). Nothing has to listen
+   here for such a port to answer. The destination ports of plain accept rules are left out on
+   purpose: a firewall manager's built-in chains name dozens nobody uses.
+
+   The rule that names the port and the rule that rewrites are often two rules: Kubernetes,
+   firewalld and many hand-written rulesets match the port in one chain and rewrite in another.
+   So the ports are found by going the way a packet goes (`rewritten`, in `rewrites.go`): from
+   every base chain on the ingress and prerouting hooks, the only place where a destination can
+   change, rule by rule into every chain a rule jumps or goes to and through every entry of a
+   verdict map that leads to a chain. What is known of the packet is carried along: whether it
+   can be tcp, whether udp, and which ports it can have been sent to. A port match narrows that,
+   in the calling rule and in the chain it calls alike; a protocol match does the same. A match
+   that says "not", a condition the model cannot read, a set that was not captured and a set the
+   rules fill themselves as packets come narrow nothing, and neither does a condition that is
+   false for a first packet (a port opened by knocking). When a statement that rewrites is
+   reached, the ports that can have come that far are asked about; with nothing on the way that
+   names a port, that is every port, of tcp and of udp. The same holds for a jump to a chain the
+   listing does not have, a verdict map that could not be read, and chains that jump in a circle:
+   the engine decides nothing for a packet that meets one, which is worth a row. The ports a rewriting rule names itself are asked about wherever the rule stands, as
+   before. The search errs on one side only: a port asked about for nothing is one more row that
+   says closed, a port not asked about is missing from the report.
+
+   What this leaves out, plainly. A scan has rows for tcp and udp ports only; a rewrite of sctp,
+   dccp or udplite is followed by `seaward why PORT/sctp --from ADDR` and is no row. Chains that
+   jump into each other more than 64 deep, or a search that has looked at more than 1,048,576
+   rules (chains of overlapping port ranges that call each other; ten thousand published services
+   stay far below it), make the search give up, and then every port of both protocols is asked
+   about as one long range.
+
+   A range of up to 16 ports (`wholeRange`) is asked port by port. A longer one is asked at its
+   two ends and at every port inside it where something can start to treat a packet differently
+   (`portBreaks`: both ends of every port match in the rules, every listener, every published
+   port, every opening of the firewall manager, and both ends of every range of ports a rewrite
+   sends packets to). The last is the kernel's way with a target range: a packet keeps its own
+   port when that lies in the range and gets the range's first port when it does not, so of the
+   packets one rule sends to 9000-9100, those for 8999, 9000 and 9101 end on port 9000 and those
+   for 9001 do not. Two ports with no such point between them fare alike, and the report names
+   each range it asked in part. A port asked in such a range stands for the ports up to the next
+   one asked, so a count that includes one is given as "at least" (`builder.more`), with a
+   sentence under the headline that says why. The ceiling is `maxPorts`, 4,096 ports.
+
+   **At a ceiling** the scan did not ask everything, and the report says so where it cannot be
+   missed. `Report.Partial` holds a sentence for each ceiling reached (`"partial"` in `--json`),
+   printed at the top of the text report as "not asked" and in the demo as a box of its own. The
+   headline claims nothing beyond what was asked: "Nothing was found reachable from outside, but
+   not every sender was asked." or "At least 3 ports can be reached from outside.", with "not
+   every port was asked" for the other ceiling. Past the ceiling of senders a port that no sender
+   that was asked reaches is `undecided`, reached by "nobody that was asked", and a port some
+   senders reach is reached by "at least" those. A port anyone reaches is said as firmly as ever,
+   and so is a port bound to the loopback only, since the kernel drops a packet from outside for
+   the loopback whoever sent it; with `route_localnet` switched on it does not, and that port is
+   undecided like the rest. `seaward scan --check` exits with status 4. `seaward why PORT` says
+   the same of its one port and carries the sentence about the senders as `"partial"` in JSON.
+5. **One finding per port**, from all its packets together:
 
    | Finding | Meaning |
    | --- | --- |
    | `exposed` | reachable from outside although the firewall manager does not allow it |
    | `open` | reachable from outside as the firewall manager allows, or by anyone when there is no manager |
    | `limited` | no firewall manager, and the rules let only some senders in (a network, a set, VPN peers) |
-   | `undecided` | hangs on something the model cannot see; the reason is given |
+   | `undecided` | hangs on something the model cannot see, or the scan stopped before every sender was asked; the reason is given |
    | `local` | reachable from this machine only |
    | `blocked` | something listens and the rules stop every packet |
    | `shadowed` | the firewall manager allows it, yet an earlier rule stops it |
@@ -274,6 +410,21 @@ it as it is.
    `Port.Reach` says who gets through in a few words (`"the internet"`, `"the local network on lan0
    only"`, `"VPN peers only"`, `"the set admins only"`), `Port.Stated` what the firewall manager
    says, `Port.Why` the reason in a sentence, and `Port.Cells` every packet tried with all its steps.
+   Up to four named senders are all said; of more, the first three and how many others
+   (`"198.51.100.8, 198.51.100.16, 198.51.100.24 and 13 more only"`), in `Reach`, in the title, in
+   `View.Note` and in `Stated` alike (`few`). `Port.Cells` keeps a packet for every one of them.
+
+   A packet that passes a chain outside the walked path is undecided (see the walk). The chains
+   that some packet of the scan passed are listed once in `Report.Unfollowed`. When all such a
+   chain can do is drop the packet, `Cell.Otherwise` says how it ends in the rules that were
+   followed, and a port whose packets reach nothing either way counts as stopped or closed, not
+   as undecided.
+
+In a terminal narrower than a line of the table of ports, a container gives up its image name
+first, then what the firewall manager says moves to a line of its own, then a long service name is
+cut short. Who reaches the port is never cut: it goes on under itself, broken between names, and
+inside a name only where one word is longer than the column (a whole IPv6 address at 60 columns),
+then after one of its colons.
 
 Three things about the firewall manager's side of it:
 
@@ -295,13 +446,32 @@ Three things about the firewall manager's side of it:
 snapshot (`-` is standard input), so `ssh server sudo seaward snapshot | seaward scan -f -` reads a
 server from a laptop. Reading a snapshot works on any system; taking one needs Linux.
 
+The port is written one way, `PORT` or `PORT/PROTO`; anything else, `22/tcp/udp` or `udp 53`
+included, is a usage error (status 2) that says how to write it. An option given to a command that
+has no use for it (`--check` with `why`, `--from` with `scan`) is a usage error as well, so a
+script never believes it asked for something it did not get.
+
+`--json` goes with `scan` and with `why`. `scan --json` prints the `Report`. `why PORT --json`
+prints `{"host", "ports"}`: the ports of the report that match, each as the report has it, an
+empty list when the scan followed no packet there. `why PORT --from ADDR --json` prints
+`{"host", "proto", "port", "from", "cells"}`: that one sender's packets.
+
+A port inside a long range that the scan asked about in part has no row in the report, and neither
+has a port the scan did not come to before its ceiling of ports. `why PORT` asks about such a port
+by itself (`scan.One`) and prints what the scan would have, in text and in JSON, so "the scan
+followed no packet there" is only ever said of a tcp or udp port that nothing listens on and no
+rule sends anywhere. For sctp, dccp and udplite, which a scan has no rows for, it says that and
+no more. When the scan did not ask every sender, the JSON carries that sentence as `"partial"`.
+
 `snapshot -o FILE` under sudo collects as root, then gives up root for good (`stepDown`: groups,
 group, user) and writes the file as the person who ran sudo, mode 600, as a new file moved into
 place (`writePrivate`). A name that is a link, a device or a directory is refused. If root cannot be
 given up, nothing is written.
 
 Exit status: 0 fine, 1 an error, 2 wrong usage. With `--check`: 3 when a port is exposed, 4 when
-nothing is exposed but something is undecided or unread. Colour only on a terminal; `NO_COLOR` and
+nothing is exposed but something is undecided, was not read or was not asked (the scan stopped at
+a ceiling, `Report.Partial`). So 0 from `--check` means every port was decided, from every group
+of senders the rules tell apart, and none is exposed. Colour only on a terminal; `NO_COLOR` and
 `--no-color` are honoured.
 
 ## The browser build (`cmd/seaward-wasm`)
@@ -321,6 +491,16 @@ a `peer` namespace on the other end of a virtual cable playing the internet, and
 collector, sends every probe as a real packet, and records what happened: connected, refused, or
 silence. Then the engine reads the snapshot and predicts each probe. Any difference fails the test.
 
+The scan is held against the kernel as well (`Unasked`). A probe names its port and its sender; a
+scan has to find both by itself. So for every probe the kernel answered, sent to one of the
+machine's own addresses, the scan of the same snapshot must ask about that port, with a row for it
+or a long range asked in part that holds it, and must call it reachable or undecided, never
+blocked or closed. Where the port has no row of its own, the same is wanted of the row that
+stands for it, the nearest port below that was asked. A scan that does not follow a jump to the
+chain that rewrites fails the lab on `dnat-behind-jump` and `nft-dnat-behind-jump`, and one that
+does not cut a long range at the ends of a rewrite's target range fails it on
+`nat-range-in-a-long-range`; both were tried.
+
 Safety rule, enforced in code twice: the launcher refuses any command line that does not start the
 shell through `unshare` with a new network and mount namespace (`checkArgv`), and the first lines of
 every scenario script refuse to go on without the launcher's marker or when anything but `lo` exists
@@ -332,7 +512,11 @@ and mount namespace. On a CI runner, where unprivileged user namespaces may be s
 
 A scenario is a text file in `internal/lab/scenarios/`: `name:`, `about:`, the rules as
 `--- iptables`, `--- ip6tables` or `--- nft`, the listeners, and the probes, each with the outcome a
-person expects (`want:open`, `want:refused`, `want:silent`). A want that the kernel contradicts fails
+person expects (`want:open`, `want:refused`, `want:silent`). Further header lines shape the
+machine: `container:` and `containers:`, `forward:`, `eth1:`, `sysctl:`, `publish:`,
+`expect-undecided:`, and `loopback: ADDR`, which gives the host a spare address on its loopback
+interface (one in eth0's network, so the peer reaches it over the cable without a route), once for
+each address. A want that the kernel contradicts fails
 the test too: that is how a wrong belief about the kernel gets caught, not only a wrong engine.
 After the written scenarios, `gen.go` writes random rulesets from the same vocabulary and compares
 those as well.
@@ -354,8 +538,10 @@ nobody wrote for it: a GitHub runner with ufw, then one with firewalld, each all
 9001, with Docker publishing nginx on 8080 and plain listeners on 9000 and 9001. Seaward has to
 say `exposed`, `blocked` and `open` for the three, `--check` has to exit 3, `why --from` has to
 agree for the one outside sender, and then real connections from a namespace on the other end of a
-cable have to do the same. `internal/scan/testdata/firewalld-docker.snapshot` is the firewalld
-runner as the collector saw it, kept as a test.
+cable have to do the same. A last step checks that neither snapshot holds a hardware address and
+that the binary and the script masked the same fields.
+`internal/scan/testdata/firewalld-docker.snapshot` is the firewalld runner as the collector saw
+it, kept as a test.
 
 ### What the kernel taught
 

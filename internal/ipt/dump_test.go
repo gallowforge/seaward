@@ -117,6 +117,9 @@ func dumpExpr(e rules.Expr) string {
 				s += fmt.Sprintf("-%d", x.PortHi)
 			}
 		}
+		if x.Random {
+			s += " random"
+		}
 		return s
 	case *rules.Redirect:
 		s := "redirect"
@@ -125,6 +128,9 @@ func dumpExpr(e rules.Expr) string {
 			if x.PortHi != 0 {
 				s += fmt.Sprintf("-%d", x.PortHi)
 			}
+		}
+		if x.Random {
+			s += " random"
 		}
 		return s
 	case *rules.SetMark:

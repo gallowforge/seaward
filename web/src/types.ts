@@ -4,9 +4,9 @@
 /** One thing that happened to a packet on its way (engine.Step). */
 export interface Step {
   kind: StepKind
-  /** "prerouting", "input", "forward", "postrouting"; "route" and "deliver" for those two kinds. */
+  /** "ingress", "prerouting", "input", "forward", "postrouting"; "route" and "deliver" for those two kinds. */
   hook?: string
-  /** The table family: "ip", "ip6", "inet". */
+  /** The table family: "ip", "ip6", "inet", "netdev". */
   family?: string
   table?: string
   chain?: string
@@ -30,6 +30,13 @@ export interface Report {
   ports: Port[]
   /** Rule sources that exist on the machine and could not be read. */
   unread?: string[]
+  /** Chains outside the path the engine walks that packets of this scan pass, a sentence each. */
+  unfollowed?: string[]
+  /**
+   * Set when the scan stopped at a ceiling (the senders asked about from one place, the ports asked
+   * about), a sentence each. What lies beyond was not asked, so such a report rules nothing out.
+   */
+  partial?: string[]
   notes?: string[]
   counts: Counts
   /** The limit every report has, in one sentence. */
@@ -116,7 +123,14 @@ export interface Cell {
   dst: string
   ipv6?: boolean
   class: CellClass
+  /** The ways an undecided packet can end. */
   possible?: string[]
+  /**
+   * Set on an undecided packet when all that was not seen is a chain that can only drop it: it is
+   * dropped there, or it ends this way. `why`, `deciding` and `steps` then tell how it ends in the
+   * rules that were followed.
+   */
+  otherwise?: CellClass | (string & {})
   /** What the firewall manager says about this packet; absent without a manager. */
   allowed?: boolean
   why: string

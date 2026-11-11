@@ -1,0 +1,40 @@
+name: nft-ingress-order
+about: Several ingress chains on one interface run in order of priority, whatever table they sit
+about: in. An accept in one only ends that chain: the next still runs and may drop the packet. A
+about: chain attached to two interfaces sees both, and its rules may jump to a chain of their own.
+--- nft
+table netdev first {
+	chain ingress {
+		type filter hook ingress devices = { "eth0", "eth1" } priority -300; policy accept;
+		tcp dport 22 accept
+		tcp dport 80 jump web
+	}
+	chain web {
+		iifname "eth1" return
+		drop
+	}
+}
+table inet second {
+	chain ingress {
+		type filter hook ingress device "eth0" priority 0; policy accept;
+		tcp dport 22 drop
+		tcp dport 8080 accept
+	}
+}
+table netdev third {
+	chain ingress {
+		type filter hook ingress device "eth1" priority 100; policy accept;
+		tcp dport 8080 drop
+	}
+}
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 8080
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 80 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 8080 want:silent

@@ -60,11 +60,22 @@ type Result struct {
 	FinalPort uint16
 	// Rewritten is true when a rule changed the destination on the way.
 	Rewritten bool
+	// Out is the interface a packet the machine sends on leaves through; "" when it stays here.
+	Out string
+	// outs is set on an Undecided result whose ways through were followed apart: every interface
+	// one of them leaves through, unless the walked rules stop it first.
+	outs []string
 	// Unknowns lists what an Undecided result hangs on, or what was uncertain on the way to a
 	// result every branch agreed on.
 	Unknowns []string
-	// Possible lists the ways an Undecided probe can end, depending on the unknowns.
+	// Possible lists the ways an Undecided probe can end, depending on the unknowns. It is empty
+	// when the walk itself could not say: a way through stopped at something the model does not
+	// follow, so a list would be short of an end nobody knows.
 	Possible []Class
+	// Otherwise is set on an Undecided result when all that was not seen is a chain that can do no
+	// more than drop the packet: the packet is either dropped there or ends this way, and nothing
+	// else can happen to it. It is zero on every other result.
+	Otherwise Class
 }
 
 // StepKind says what a step of the path is.
@@ -81,7 +92,7 @@ const (
 // Step is one thing that happened to the packet.
 type Step struct {
 	Kind   StepKind `json:"kind"`
-	Hook   string   `json:"hook,omitempty"`   // "prerouting", "input", "forward", "postrouting"
+	Hook   string   `json:"hook,omitempty"`   // "ingress", "prerouting", "route", "input", "forward", "postrouting"
 	Family string   `json:"family,omitempty"` // table family
 	Table  string   `json:"table,omitempty"`
 	Chain  string   `json:"chain,omitempty"`

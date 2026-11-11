@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,28 @@ type fakeCmd struct {
 
 const fakeHost = "web-1"
 
+// fakeIPAddr is what ip prints on the invented machine, hardware addresses and all: a card with
+// its own address, the one it was made with, a name and a device id made from that, and a bridge
+// whose id carries its address the way ip prints one there, without leading zeros.
+// fakeIPAddrKept is what a snapshot keeps of it.
+const fakeIPAddr = `[{"ifname":"lo","flags":["LOOPBACK","UP"],"link_type":"loopback","address":"00:00:00:00:00:00","broadcast":"00:00:00:00:00:00",` +
+	`"addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8}]},` +
+	`{"ifname":"eth0","flags":["BROADCAST","UP"],"link_type":"ether","address":"00:00:5e:00:53:10","broadcast":"ff:ff:ff:ff:ff:ff",` +
+	`"permaddr":"00:00:5e:00:53:11","parentbus":"vmbus","parentdev":"00005e00-5311-0000-5e00-531100005e00","altnames":["enp1s0","enx00005e005311"],` +
+	`"addr_info":[{"family":"inet","local":"192.0.2.10","prefixlen":24},{"family":"inet6","local":"fe80::200:5eff:fe00:5310","prefixlen":64}]},` +
+	`{"ifname":"docker0","flags":["BROADCAST","UP"],"link_type":"ether","address":"00:00:5e:00:53:20","broadcast":"ff:ff:ff:ff:ff:ff",` +
+	`"linkinfo":{"info_kind":"bridge","info_data":{"bridge_id":"8000.0:0:5e:0:53:20","root_id":"8000.0:0:5e:0:53:20"}},` +
+	`"addr_info":[{"family":"inet","local":"172.17.0.1","prefixlen":16}]}]`
+
+const fakeIPAddrKept = `[{"ifname":"lo","flags":["LOOPBACK","UP"],"link_type":"loopback","address":"xx:xx:xx:xx:xx:xx","broadcast":"xx:xx:xx:xx:xx:xx",` +
+	`"addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8}]},` +
+	`{"ifname":"eth0","flags":["BROADCAST","UP"],"link_type":"ether","address":"xx:xx:xx:xx:xx:xx","broadcast":"xx:xx:xx:xx:xx:xx",` +
+	`"permaddr":"xx:xx:xx:xx:xx:xx","parentbus":"vmbus","parentdev":"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx","altnames":["enp1s0","enxxxxxxxxxxxxx"],` +
+	`"addr_info":[{"family":"inet","local":"192.0.2.10","prefixlen":24},{"family":"inet6","local":"fe80::200:5eff:fe00:5310","prefixlen":64}]},` +
+	`{"ifname":"docker0","flags":["BROADCAST","UP"],"link_type":"ether","address":"xx:xx:xx:xx:xx:xx","broadcast":"xx:xx:xx:xx:xx:xx",` +
+	`"linkinfo":{"info_kind":"bridge","info_data":{"bridge_id":"8000.xx:xx:xx:xx:xx:xx","root_id":"8000.xx:xx:xx:xx:xx:xx"}},` +
+	`"addr_info":[{"family":"inet","local":"172.17.0.1","prefixlen":16}]}]`
+
 // fakeMachine is an invented machine as the collector would see it. Keys are full argument
 // lists joined by spaces.
 func fakeMachine() (programs []string, cmds map[string]fakeCmd) {
@@ -140,7 +163,7 @@ func fakeMachine() (programs []string, cmds map[string]fakeCmd) {
 		"ip6tables-legacy-save":          {out: "*raw\n:PREROUTING ACCEPT [0:0]\nCOMMIT\n"},
 		"nft -j list ruleset":            {out: `{"nftables": [{"metainfo": {"json_schema_version": 1}}]}` + "\n"},
 		"ss -Htulpn":                     {out: "tcp   LISTEN 0      128   0.0.0.0:22   0.0.0.0:*   users:((\"sshd\",pid=812,fd=3))\n### odd line\n"},
-		"ip -j -d addr show":             {out: `[{"ifname":"lo","flags":["LOOPBACK","UP"],"addr_info":[{"family":"inet","local":"127.0.0.1","prefixlen":8}]}]` + "\n"},
+		"ip -j -d addr show":             {out: fakeIPAddr + "\n"},
 		"ip -j -4 route show table main": {out: `[{"dst":"default","gateway":"192.0.2.1","dev":"eth0"}]` + "\n"},
 		"ip -j -6 route show table main": {out: "[]\n"},
 		// The IPv6 key is missing: sysctl complains and fails, but prints the other key.
@@ -178,7 +201,11 @@ func fakeRunner(t *testing.T, programs []string, cmds map[string]fakeCmd, calls 
 		}
 		r := runResult{stdout: strings.TrimRight(c.out, "\n"), code: c.code}
 		if c.code != 0 {
+			// As execRun does: the first line the command wrote, or failing that how it ended.
 			r.errLine = firstLine(c.stderr)
+			if r.errLine == "" {
+				r.errLine = "exit status " + strconv.Itoa(c.code)
+			}
 		}
 		return r
 	}
@@ -209,6 +236,13 @@ func TestCollectWith(t *testing.T) {
 	}
 	if s, _ := b.Get("sysctl"); s != "net.ipv4.ip_forward = 1\nnet.ipv4.conf.all.route_localnet = 0\nnet.ipv4.conf.lo.route_localnet = 0" {
 		t.Errorf("sysctl: %q", s)
+	}
+	// The interfaces are kept whole but for their hardware addresses, which appear nowhere.
+	if s, _ := b.Get("ip-addr"); s != fakeIPAddrKept {
+		t.Errorf("ip-addr:\n got %s\nwant %s", s, fakeIPAddrKept)
+	}
+	if text := b.String(); strings.Contains(text, "5e:00:53") || strings.Contains(text, "5e:0:53") || strings.Contains(text, "5e0053") || strings.Contains(text, "5e00-53") {
+		t.Error("a hardware address is in the snapshot")
 	}
 	errs := b.Errors()
 	wantErrs := map[string]string{
@@ -257,6 +291,172 @@ func TestCollectWithoutRoot(t *testing.T) {
 	}
 	if b.Meta()["root"] != "no" {
 		t.Error("meta root")
+	}
+}
+
+// The legacy tables are a second place rules can sit. A listing of them that fails is written
+// down like any other failure, and the report then holds back; one that works and holds no table,
+// or a machine without the legacy tools, leaves no trace.
+func TestCollectLegacySave(t *testing.T) {
+	const v4, v6 = "iptables-legacy-save", "ip6tables-legacy-save"
+	for _, tt := range legacyMachines {
+		t.Run(tt.name, func(t *testing.T) {
+			programs, cmds := fakeMachine()
+			programs = tt.change(programs, cmds)
+			var calls [][]string
+			b := collectWith(context.Background(), fakeRunner(t, programs, cmds, &calls), fakeHost, true, func(string) bool { return true })
+			var kept []string
+			for _, s := range []string{v4, v6} {
+				if b.Has(s) {
+					kept = append(kept, s)
+				}
+			}
+			if !slices.Equal(kept, tt.kept) {
+				t.Errorf("legacy sections kept: %q, want %q", kept, tt.kept)
+			}
+			errs := map[string]string{}
+			for label, msg := range b.Errors() {
+				if strings.Contains(label, "legacy") {
+					errs[label] = msg
+				}
+			}
+			if !reflect.DeepEqual(errs, tt.errs) {
+				t.Errorf("errors about the legacy tables:\n got %q\nwant %q", errs, tt.errs)
+			}
+			// What the reader makes of it: one sentence per failed listing, and that family of
+			// rules marked unread, so that nothing is called open on rules nobody saw.
+			rs, h, err := Build(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var said, unread []string
+			for _, n := range h.Notes {
+				if strings.Contains(n, "legacy") {
+					said = append(said, n)
+				}
+			}
+			for _, u := range rs.Unread {
+				if strings.Contains(u.Why, "legacy") {
+					unread = append(unread, u.Family+": "+u.Why)
+				}
+			}
+			slices.Sort(said)
+			if !slices.Equal(said, tt.notes) {
+				t.Errorf("notes about the legacy tables:\n got %q\nwant %q", said, tt.notes)
+			}
+			var wantUnread []string
+			for _, n := range tt.notes {
+				fam := "ip"
+				if strings.Contains(n, "IPv6") {
+					fam = "ip6"
+				}
+				wantUnread = append(wantUnread, fam+": "+n)
+			}
+			if !slices.Equal(unread, wantUnread) {
+				t.Errorf("unread rule sources:\n got %q\nwant %q", unread, wantUnread)
+			}
+			ran := false
+			for _, c := range calls {
+				ran = ran || strings.Contains(c[0], "legacy")
+			}
+			if ran != tt.asked {
+				t.Errorf("the legacy listings were asked for: %v, want %v", ran, tt.asked)
+			}
+			checkCalls(t, calls)
+		})
+	}
+}
+
+// legacyMachines are the invented machine with its legacy listings in every state that matters.
+// The script is run against the same ones.
+var legacyMachines = []struct {
+	name   string
+	change func(programs []string, cmds map[string]fakeCmd) []string
+	kept   []string          // the legacy sections the snapshot holds
+	errs   map[string]string // its errors lines about them, as the Go collector words them
+	notes  []string          // what the reader then says, in order
+	asked  bool              // whether the collector tries the legacy listings at all
+}{
+	{"one holds a table, one holds none",
+		func(p []string, _ map[string]fakeCmd) []string { return p },
+		[]string{"ip6tables-legacy-save"}, map[string]string{}, nil, true},
+	{"both hold a table",
+		func(p []string, c map[string]fakeCmd) []string {
+			c["iptables-legacy-save"] = fakeCmd{out: "*filter\n:INPUT DROP [0:0]\nCOMMIT\n"}
+			return p
+		},
+		[]string{"iptables-legacy-save", "ip6tables-legacy-save"}, map[string]string{}, nil, true},
+	{"one fails",
+		func(p []string, c map[string]fakeCmd) []string {
+			c["iptables-legacy-save"] = fakeCmd{stderr: "iptables-legacy-save v1.8.10 (legacy): can't initialize iptables table `filter': Table does not exist\n", code: 1}
+			return p
+		},
+		[]string{"ip6tables-legacy-save"},
+		map[string]string{"iptables-legacy-save": "iptables-legacy-save v1.8.10 (legacy): can't initialize iptables table `filter': Table does not exist"},
+		[]string{"The legacy IPv4 packet rules could not be read: iptables-legacy-save failed (iptables-legacy-save v1.8.10 (legacy): can't initialize iptables table `filter': Table does not exist)."},
+		true},
+	{"one fails after printing a table",
+		func(p []string, c map[string]fakeCmd) []string {
+			c["ip6tables-legacy-save"] = fakeCmd{out: "*raw\n:PREROUTING ACCEPT [0:0]\nCOMMIT\n", stderr: "ip6tables-legacy-save: line 4 failed\n", code: 1}
+			return p
+		},
+		nil,
+		map[string]string{"ip6tables-legacy-save": "ip6tables-legacy-save: line 4 failed"},
+		[]string{"The legacy IPv6 packet rules could not be read: ip6tables-legacy-save failed (ip6tables-legacy-save: line 4 failed)."},
+		true},
+	{"one fails without a word",
+		func(p []string, c map[string]fakeCmd) []string {
+			c["iptables-legacy-save"] = fakeCmd{code: 3}
+			return p
+		},
+		[]string{"ip6tables-legacy-save"},
+		map[string]string{"iptables-legacy-save": "exit status 3"},
+		[]string{"The legacy IPv4 packet rules could not be read: iptables-legacy-save failed (exit status 3)."},
+		true},
+	{"both are refused",
+		func(p []string, c map[string]fakeCmd) []string {
+			c["iptables-legacy-save"] = fakeCmd{stderr: "iptables-legacy-save v1.8.10 (legacy): Cannot initialize: Permission denied (you must be root)\n", code: 1}
+			c["ip6tables-legacy-save"] = fakeCmd{stderr: "ip6tables-legacy-save v1.8.10 (legacy): Cannot initialize: Permission denied (you must be root)\n", code: 1}
+			return p
+		},
+		nil,
+		map[string]string{
+			"iptables-legacy-save":  "iptables-legacy-save v1.8.10 (legacy): Cannot initialize: Permission denied (you must be root)",
+			"ip6tables-legacy-save": "ip6tables-legacy-save v1.8.10 (legacy): Cannot initialize: Permission denied (you must be root)",
+		},
+		[]string{
+			"The legacy IPv4 packet rules could not be read: iptables-legacy-save needs root.",
+			"The legacy IPv6 packet rules could not be read: ip6tables-legacy-save needs root.",
+		},
+		true},
+	{"the legacy tools are not installed",
+		func(p []string, _ map[string]fakeCmd) []string {
+			return slices.DeleteFunc(p, func(n string) bool { return strings.Contains(n, "legacy") })
+		},
+		nil, map[string]string{}, nil, true},
+	{"iptables is itself the legacy tool",
+		func(p []string, c map[string]fakeCmd) []string {
+			c["iptables -V"] = fakeCmd{out: "iptables v1.8.10 (legacy)\n"}
+			// They would fail, were they asked.
+			c["iptables-legacy-save"] = fakeCmd{code: 1}
+			c["ip6tables-legacy-save"] = fakeCmd{code: 1}
+			return p
+		},
+		nil, map[string]string{}, nil, false},
+}
+
+// A machine where every tool it has works, and which has no legacy tools, gives a snapshot with
+// no errors section at all.
+func TestCollectCleanMachineSaysNothing(t *testing.T) {
+	_, cmds := fakeMachine()
+	programs := []string{"iptables", "iptables-save", "ip6tables-save", "nft", "ss", "ip", "sysctl"}
+	var calls [][]string
+	b := collectWith(context.Background(), fakeRunner(t, programs, cmds, &calls), fakeHost, true, func(string) bool { return true })
+	if b.Has("errors") || b.Has("iptables-legacy-save") || b.Has("ip6tables-legacy-save") {
+		t.Errorf("want no errors and no legacy sections, got:\n%s", b.String())
+	}
+	if !b.Has("iptables-save") || !b.Has("ip-addr") {
+		t.Errorf("the machine was not read:\n%s", b.String())
 	}
 }
 

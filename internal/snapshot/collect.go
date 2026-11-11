@@ -234,8 +234,9 @@ func collectWith(ctx context.Context, run runner, hostname string, root bool, ha
 	// default tool talks to nf_tables, and only when something actually put rules there.
 	if !strings.Contains(ver, "(legacy)") {
 		for _, s := range []string{"iptables-legacy-save", "ip6tables-legacy-save"} {
-			// Failures are not noted here: without root iptables-save already said so.
-			if out, ok := c.do(s, "", 0, nil, func(runResult) bool { return true }); ok && hasSaveTables(out) {
+			// A listing that worked and holds no table is left out. One that failed is noted like
+			// any other: rules may sit in tables nobody could list, and the report must say so.
+			if out, ok := c.do(s, "", 0, nil, nil); ok && hasSaveTables(out) {
 				c.b.Add(s, "", out)
 			}
 		}
@@ -245,7 +246,11 @@ func collectWith(ctx context.Context, run runner, hostname string, root bool, ha
 
 	// The machine.
 	c.section("ss", "", nil)
-	c.section("ip-addr", "", nil)
+	// The interfaces are kept without their hardware addresses, which nothing reads: see
+	// hardwareMasks.
+	if out, ok := c.do("ip-addr", "", 0, nil, nil); ok {
+		c.b.Add("ip-addr", "", maskHardware(out))
+	}
 	c.section("ip-route-4", "", nil)
 	c.section("ip-route-6", "", nil)
 	var sys []string

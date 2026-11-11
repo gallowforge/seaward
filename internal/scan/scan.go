@@ -17,7 +17,25 @@ type builder struct {
 	e     *engine.Engine
 	f     *host.Frontend // the firewall manager, when one is active
 	preds []pred
-	notes []string
+	// atlases holds, per address family (true is IPv6), the family cut into the stretches of
+	// addresses the predicates cannot tell apart.
+	atlases map[bool]*atlas
+	notes   []string
+	// ranges are the port ranges asked about in part, by name and by their ends, and cut says the
+	// list of ports hit its ceiling.
+	ranges []string
+	parts  []partRange
+	cut    bool
+	// more says a port that can be reached stands for others of its range that were not asked
+	// one by one, so the count of reachable ports is the least there are.
+	more bool
+	// moreUndecided says the same of a port that could not be decided.
+	moreUndecided bool
+	// only, when set, is the one port that is asked about (One): no other is a candidate, a range
+	// is asked for that port and not in part, and the ceiling of ports does not come into it.
+	only *portKey
+	// crowded says the rules tell more groups of senders apart than the scan asks about.
+	crowded bool
 }
 
 func newBuilder(rs *rules.Ruleset, h *host.Host) *builder {
@@ -32,7 +50,7 @@ func newBuilder(rs *rules.Ruleset, h *host.Host) *builder {
 		if f.Active {
 			b.f = f
 		} else {
-			b.notes = append(b.notes, f.Tool+" is installed and not active, so it has no say here.")
+			b.notes = append(b.notes, "The firewall manager "+f.Tool+" is installed and not active, so it has no say here.")
 		}
 	}
 	b.preds = b.sourcePreds()
@@ -54,11 +72,40 @@ func Run(rs *rules.Ruleset, h *host.Host) *Report {
 	if b.f != nil {
 		rep.Frontend = &Frontend{Tool: b.f.Tool, Default: b.f.DefaultIncoming, Allows: b.allows()}
 	}
-	for _, k := range b.candidates() {
+	asked := b.candidates()
+	isAsked := make(map[portKey]bool, len(asked))
+	for _, k := range asked {
+		isAsked[k] = true
+	}
+	for _, k := range asked {
 		p := b.port(k, vs)
 		if len(p.Cells) > 0 {
 			rep.Ports = append(rep.Ports, p)
 		}
+		// In a range asked in part, a port stands for the ports after it up to the next one asked:
+		// a count of such ports is a count of at least that many.
+		if k.port < 65535 && !isAsked[portKey{k.proto, k.port + 1}] {
+			stands := false
+			for _, r := range b.parts {
+				stands = stands || (r.proto == k.proto && r.lo <= k.port && k.port < r.hi)
+			}
+			switch p.Finding {
+			case Exposed, Open, Limited:
+				b.more = b.more || stands
+			case Undecided:
+				b.moreUndecided = b.moreUndecided || stands
+			}
+		}
+	}
+	if len(b.ranges) > 0 {
+		b.notes = append(b.notes, "A long range of ports is asked about at its two ends and at every port inside it that a rule, a listener or the target of a rewrite sets apart; the ports between fare like the nearest one below them that was asked: "+list(b.ranges)+".")
+	}
+	// A ceiling that was reached is more than a note: what lies beyond it was not asked.
+	if b.crowded {
+		rep.Partial = append(rep.Partial, sendersCut)
+	}
+	if b.cut {
+		rep.Partial = append(rep.Partial, portsCut)
 	}
 	sort.SliceStable(rep.Ports, func(i, j int) bool {
 		x, y := rep.Ports[i], rep.Ports[j]
@@ -77,10 +124,25 @@ func Run(rs *rules.Ruleset, h *host.Host) *Report {
 			rep.Unread = append(rep.Unread, u.Why)
 		}
 	}
+	// A chain that was not followed is named once, when some packet the scan sent passes it.
+	hung := map[string]bool{}
+	for _, p := range rep.Ports {
+		for _, c := range p.Cells {
+			for _, u := range c.Unknowns {
+				hung[u] = true
+			}
+		}
+	}
+	for _, u := range b.rs.Unfollowed {
+		if hung[u.Why] {
+			hung[u.Why] = false
+			rep.Unfollowed = append(rep.Unfollowed, sentence(u.Why))
+		}
+	}
 	seen := map[string]bool{}
 	for _, list := range [][]string{b.notes, b.h.Notes, b.rs.Notes} {
 		for _, n := range list {
-			if n != "" && !seen[n] && !unread[n] {
+			if n = sentence(n); n != "" && !seen[n] && !unread[n] {
 				seen[n] = true
 				rep.Notes = append(rep.Notes, n)
 			}
@@ -88,6 +150,31 @@ func Run(rs *rules.Ruleset, h *host.Host) *Report {
 	}
 	b.sum(rep, len(vs))
 	return rep
+}
+
+// One answers for a port the report has no row for although the scan has reason to ask about it:
+// a port inside a long range that was asked about in part, or one the scan did not come to
+// before its ceiling of ports. The port is asked about by itself, as the scan would have asked.
+// proto "" stands for tcp and udp. A port the scan has no reason to ask about gets nothing:
+// nothing listens on it, and no rule sends its packets anywhere.
+func One(rs *rules.Ruleset, h *host.Host, proto string, port uint16) []Port {
+	var out []Port
+	for _, pr := range []string{"tcp", "udp"} {
+		if proto != "" && proto != pr {
+			continue
+		}
+		b := newBuilder(rs, h)
+		vs := b.vantages()
+		k := portKey{pr, port}
+		b.only = &k
+		if len(b.candidates()) == 0 {
+			continue
+		}
+		if p := b.port(k, vs); len(p.Cells) > 0 {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Trace follows one packet per outside address of the machine, from one sender, for the "why" view.
@@ -111,12 +198,33 @@ func Trace(rs *rules.Ruleset, h *host.Host, proto string, port uint16, from neti
 			continue
 		}
 		v := &vantage{Vantage: Vantage{ID: "from:" + in.Name, Iface: in.Name, Scope: "world"}}
+		c := srcClass{label: from.String(), addr: from}
+		seen := map[string]bool{}
+		own, near := 0, false
 		for _, p := range in.Addrs {
 			a := p.Addr().Unmap()
 			if a.Is6() != from.Is6() || a.IsLinkLocalUnicast() || a == from {
 				continue
 			}
-			sh := b.shoot(k, v, a.Is6(), srcClass{label: from.String(), addr: from}, a)
+			near = near || p.Contains(from)
+			sh := b.shoot(k, v, a.Is6(), c, a)
+			seen[sh.key(a)] = true
+			out = append(out, sh.cell)
+			own++
+		}
+		// The machine's addresses elsewhere, where the answer there is another one: all of them for
+		// a sender on the interface's own network, the public ones for anyone further away.
+		for _, a := range b.elsewhere(in, from.Is6()) {
+			if a == from || (!near && !public(a)) {
+				continue
+			}
+			sh := b.shoot(k, v, a.Is6(), c, a)
+			key := sh.key(a)
+			if seen[key] || (own > 0 && sh.res.Class == engine.Closed) {
+				continue
+			}
+			seen[key] = true
+			b.elsewhereNote(sh, a)
 			out = append(out, sh.cell)
 		}
 	}
@@ -156,17 +264,31 @@ type portKey struct {
 
 func (k portKey) String() string { return fmt.Sprintf("%s %d", k.proto, k.port) }
 
-// candidates lists the ports worth asking about. The destination ports of ordinary accept rules are
-// left out on purpose: a firewall manager's built-in chains name dozens nobody uses.
+// candidates lists the ports worth asking about: those something listens on, those Docker
+// publishes, those the firewall manager names, and those a rule sends somewhere else, for which
+// nothing has to listen here. The destination ports of ordinary accept rules are left out on
+// purpose: a firewall manager's built-in chains name dozens nobody uses, and a port that is
+// merely accepted, with nothing listening and nothing rewriting it, answers nobody.
+//
+// Only tcp and udp ports are asked about. A rewrite of another protocol with ports (sctp, dccp)
+// is followed by "seaward why" and is no row of a scan.
 func (b *builder) candidates() []portKey {
 	seen := map[portKey]bool{}
 	var out []portKey
 	add := func(proto string, port uint16) {
 		k := portKey{proto, port}
-		if port != 0 && (proto == "tcp" || proto == "udp") && !seen[k] {
-			seen[k] = true
-			out = append(out, k)
+		if port == 0 || (proto != "tcp" && proto != "udp") || seen[k] {
+			return
 		}
+		if b.only != nil && k != *b.only {
+			return
+		}
+		if len(out) >= maxPorts {
+			b.cut = true
+			return
+		}
+		seen[k] = true
+		out = append(out, k)
 	}
 	for _, l := range b.h.Listeners {
 		if l.Netns == "" {
@@ -180,8 +302,10 @@ func (b *builder) candidates() []portKey {
 			}
 		}
 	}
-	// Ports a rule sends somewhere else: nothing needs to listen here for those to answer.
-	left := 48
+	// Ports a rule sends somewhere else: nothing needs to listen here for those to answer. First
+	// the rules that name their ports themselves, whether a port stands in the rule or in a set
+	// the rule looks up, alone or beside other fields.
+	breaks := b.portBreaks()
 	for _, t := range b.rs.Tables {
 		for _, cn := range t.Order {
 			c := t.Chains[cn]
@@ -191,30 +315,33 @@ func (b *builder) candidates() []portKey {
 			for _, r := range c.Rules {
 				rewrites := false
 				var protos []string
-				var ports []uint16
+				var spans [][2]uint16
 				for _, x := range r.Exprs {
 					switch m := x.(type) {
 					case *rules.DNAT, *rules.Redirect:
 						rewrites = true
 					case *rules.Match:
-						if m.Neg || m.Values == nil || len(m.Key) != 1 {
+						set := m.Values
+						if set == nil {
+							set = b.rs.Sets[m.SetRef]
+						}
+						if m.Neg || set == nil {
 							continue
 						}
-						for _, el := range m.Values.Elems {
-							if len(el) != 1 || el[0].Kind != rules.AtomNum {
-								continue
-							}
-							switch m.Key[0].Name {
-							case rules.FDport:
-								ports = append(ports, uint16(el[0].Lo))
-								if el[0].Hi != el[0].Lo {
-									ports = append(ports, uint16(el[0].Hi))
+						for idx, f := range m.Key {
+							for _, el := range set.Elems {
+								if idx >= len(el) || el[idx].Kind != rules.AtomNum {
+									continue
 								}
-							case rules.FL4Proto:
-								if el[0].Lo == 6 {
-									protos = append(protos, "tcp")
-								} else if el[0].Lo == 17 {
-									protos = append(protos, "udp")
+								switch f.Name {
+								case rules.FDport:
+									spans = append(spans, [2]uint16{uint16(el[idx].Lo), uint16(el[idx].Hi)})
+								case rules.FL4Proto:
+									if el[idx].Lo == 6 {
+										protos = append(protos, "tcp")
+									} else if el[idx].Lo == 17 {
+										protos = append(protos, "udp")
+									}
 								}
 							}
 						}
@@ -226,17 +353,34 @@ func (b *builder) candidates() []portKey {
 				if len(protos) == 0 {
 					protos = []string{"tcp"}
 				}
-				for i, p := range ports {
-					if i == 4 || left == 0 {
-						break
-					}
+				for _, sp := range spans {
 					for _, pr := range protos {
-						if !seen[portKey{pr, p}] {
-							left--
-						}
-						add(pr, p)
+						b.span(add, pr, sp[0], sp[1], breaks)
 					}
 				}
+			}
+		}
+	}
+	// The same, the way a packet goes: a rule may name the port and jump, and the chain it jumps
+	// to, or one further on, may do the rewriting. Every port that can come as far as a rewrite
+	// is asked about; with nothing on the way that names a port or a protocol, that is every
+	// port, of tcp and of udp.
+	ways, lost := b.rewritten()
+	if lost {
+		ways = append(ways, way{tcp: true, udp: true, ports: allPorts})
+	}
+	done := map[string]bool{}
+	for _, w := range ways {
+		if done[w.key()] {
+			continue
+		}
+		done[w.key()] = true
+		for _, sp := range w.ports {
+			if w.tcp {
+				b.span(add, "tcp", sp[0], sp[1], breaks)
+			}
+			if w.udp {
+				b.span(add, "udp", sp[0], sp[1], breaks)
 			}
 		}
 	}
@@ -249,10 +393,7 @@ func (b *builder) candidates() []portKey {
 			if proto == "" {
 				proto = "tcp"
 			}
-			add(proto, r.PortLo)
-			if r.PortHi != r.PortLo {
-				add(proto, r.PortHi)
-			}
+			b.span(add, proto, r.PortLo, r.PortHi, breaks)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -261,6 +402,178 @@ func (b *builder) candidates() []portKey {
 		}
 		return out[i].proto < out[j].proto
 	})
+	return out
+}
+
+// What a report says when it stopped at a ceiling (Report.Partial).
+var (
+	sendersCut = fmt.Sprintf("The rules tell more groups of senders apart than the scan asks about from one place: it asked about %d of them, and the senders beyond those were not asked.", maxClasses)
+	portsCut   = fmt.Sprintf("The rules name more than %d ports; the scan asked about the first %d and stopped.", maxPorts, maxPorts)
+)
+
+// SendersNotAsked is the report's sentence about the ceiling of senders, when the scan reached
+// it, and nothing otherwise. It goes with the answer for a single port ("why"), which the
+// ceiling of ports has no part in.
+func SendersNotAsked(r *Report) []string {
+	for _, p := range r.Partial {
+		if p == sendersCut {
+			return []string{p}
+		}
+	}
+	return nil
+}
+
+// nobodyAsked is who reaches a port when every sender that was asked is stopped and not every
+// sender was asked.
+const nobodyAsked = "nobody that was asked"
+
+// A range of up to wholeRange ports is asked about port by port. A longer one is asked about at
+// its two ends and at every port inside it that anything sets apart, and the report says so.
+// maxPorts is a ceiling no ordinary machine comes near; reaching it is said too.
+const (
+	wholeRange = 16
+	maxPorts   = 4096
+)
+
+// span asks about the ports lo to hi.
+func (b *builder) span(add func(string, uint16), proto string, lo, hi uint16, breaks []uint16) {
+	if lo == 0 {
+		lo = 1
+	}
+	if hi < lo {
+		return
+	}
+	if b.only != nil {
+		// One port is wanted, and a range holds it or does not: nothing is asked in part.
+		if proto == b.only.proto && lo <= b.only.port && b.only.port <= hi {
+			add(proto, b.only.port)
+		}
+		return
+	}
+	if int(hi)-int(lo) < wholeRange {
+		for p := int(lo); p <= int(hi); p++ {
+			add(proto, uint16(p))
+		}
+		return
+	}
+	add(proto, lo)
+	add(proto, hi)
+	for _, p := range breaks {
+		if p > lo && p < hi {
+			add(proto, p)
+		}
+	}
+	name := fmt.Sprintf("%s %d to %d", proto, lo, hi)
+	for _, r := range b.ranges {
+		if r == name {
+			return
+		}
+	}
+	b.ranges = append(b.ranges, name)
+	b.parts = append(b.parts, partRange{proto, lo, hi})
+}
+
+// partRange is a range of ports that was asked about in part.
+type partRange struct {
+	proto  string
+	lo, hi uint16
+}
+
+// portBreaks lists the ports where something can start to treat a packet differently from the
+// port below: the ends of every port match in the rules, every listener, every published port,
+// every opening of the firewall manager, and the ends of the ports a rewrite sends packets to.
+// Two ports with no such point between them fare alike.
+//
+// The last of these is the kernel's way with a range of ports as a target: a packet keeps its
+// own port when that lies in the range and gets the first port of the range when it does not.
+// So of the packets one rule rewrites to 9000-9100, those sent to 9000 and to 9101 end on port
+// 9000, and those sent to 9001 do not.
+func (b *builder) portBreaks() []uint16 {
+	seen := map[uint16]bool{}
+	mark := func(lo, hi uint32) {
+		if lo > 0 && lo <= 65535 {
+			seen[uint16(lo)] = true
+		}
+		if hi < 65535 {
+			seen[uint16(hi+1)] = true
+		}
+	}
+	target := func(lo, hi uint16) {
+		if lo != 0 {
+			mark(uint32(lo), uint32(max(lo, hi)))
+		}
+	}
+	fromSet := func(key []rules.Field, set *rules.Set) {
+		if set == nil {
+			return
+		}
+		for idx, f := range key {
+			if f.Name != rules.FDport && f.Name != rules.FCtOrigDport {
+				continue
+			}
+			for _, el := range set.Elems {
+				if idx < len(el) && el[idx].Kind == rules.AtomNum {
+					mark(el[idx].Lo, el[idx].Hi)
+				}
+			}
+		}
+	}
+	for _, t := range b.rs.Tables {
+		for _, cn := range t.Order {
+			c := t.Chains[cn]
+			if c == nil {
+				continue
+			}
+			for _, r := range c.Rules {
+				for _, x := range r.Exprs {
+					switch m := x.(type) {
+					case *rules.Match:
+						if m.Values != nil {
+							fromSet(m.Key, m.Values)
+						} else {
+							fromSet(m.Key, b.rs.Sets[m.SetRef])
+						}
+					case *rules.VerdictMap:
+						if m.SetRef != "" {
+							fromSet(m.Key, b.rs.Sets[m.SetRef])
+							continue
+						}
+						set := &rules.Set{}
+						for _, en := range m.Entries {
+							set.Elems = append(set.Elems, en.Key)
+						}
+						fromSet(m.Key, set)
+					case *rules.DNAT:
+						target(m.Port, m.PortHi)
+					case *rules.Redirect:
+						target(m.Port, m.PortHi)
+					}
+				}
+			}
+		}
+	}
+	for _, l := range b.h.Listeners {
+		mark(uint32(l.Port), uint32(l.Port))
+	}
+	if b.h.Docker != nil {
+		for _, c := range b.h.Docker.Containers {
+			for _, p := range c.Ports {
+				mark(uint32(p.HostPort), uint32(p.HostPort))
+			}
+		}
+	}
+	if b.f != nil {
+		for _, r := range b.f.Rules {
+			if r.PortLo != 0 || r.PortHi != 0 {
+				mark(uint32(r.PortLo), uint32(r.PortHi))
+			}
+		}
+	}
+	out := make([]uint16, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }
 
@@ -383,7 +696,7 @@ func (b *builder) stated(k portKey) string {
 		return "allowed"
 	}
 	if len(only) > 0 {
-		return "allowed only " + list(only)
+		return "allowed only " + list(few(only))
 	}
 	if b.f.DefaultIncoming == "allow" {
 		return "allowed by default"
@@ -470,6 +783,16 @@ func list(parts []string) string {
 	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }
 
+// few keeps a list of names short enough to read in a line: up to four are all said, and of more
+// the first three and how many others there are. Every one of them is still in the report, as a
+// packet of its own.
+func few(names []string) []string {
+	if len(names) <= 4 {
+		return names
+	}
+	return append(names[:3:3], fmt.Sprintf("%d more", len(names)-3))
+}
+
 // shot is one packet sent, with what the report needs to know about it.
 type shot struct {
 	cell    Cell
@@ -499,7 +822,43 @@ func (b *builder) shoot(k portKey, v *vantage, v6 bool, c srcClass, dst netip.Ad
 	}
 	sh.cell.Rewrite, sh.cell.Deciding = res.Rewrite(), res.Deciding()
 	sh.cell.Why = b.why(res)
+	if res.Otherwise != 0 {
+		// All that was not seen is a chain that can do no more than drop the packet. How it ends
+		// in the rules that were followed is worth saying; it is just not the last word.
+		walked := res
+		walked.Class = res.Otherwise
+		sh.cell.Otherwise = res.Otherwise.String()
+		sh.cell.Deciding = walked.Deciding()
+		sh.cell.Why = b.why(walked) + " " + mayDrop
+	}
 	return sh
+}
+
+// key tells apart the answers worth a line of their own: how the packet to d ended and why. The
+// address itself is left out, so the same answer at two addresses is said once.
+func (s *shot) key(d netip.Addr) string {
+	return s.cell.Class + "\x00" + s.cell.Otherwise + "\x00" + strings.ReplaceAll(s.cell.Why, d.String(), "") + "\x00" + fmt.Sprint(s.exposed)
+}
+
+// elsewhereNote adds, to the account of a packet that got through at an address which does not
+// sit on the interface it arrived on, why it could.
+func (b *builder) elsewhereNote(sh *shot, d netip.Addr) {
+	if on := b.heldOn(d); sh.reach && on != "" {
+		sh.cell.Why += " The packet is for " + d.String() + ", an address on " + on + ": Linux takes packets for any address it holds, whichever interface they arrive on."
+	}
+}
+
+// mayDrop ends the account of a packet that passes a chain seaward did not follow, when all that
+// chain can do is drop it.
+const mayDrop = "A chain that was not followed may drop it instead."
+
+// end is how the packet ends as far as the finding for its port goes. One that reaches nothing
+// whether or not a chain that was not followed drops it is stopped, not undecided.
+func (s *shot) end() engine.Class {
+	if s.res.Class == engine.Undecided && (s.res.Otherwise == engine.Closed || s.res.Otherwise == engine.Rejected) {
+		return s.res.Otherwise
+	}
+	return s.res.Class
 }
 
 // port asks about one port from everywhere and sums the answers up.
@@ -510,19 +869,25 @@ func (b *builder) port(k portKey, vs []*vantage) Port {
 			base := map[netip.Addr]*shot{}
 			seen := map[string]bool{}
 			for ci, c := range s.classes {
-				for _, d := range s.dsts {
+				for di, d := range s.dsts {
 					sh := b.shoot(k, v, s.v6, c, d)
+					key := sh.key(d)
+					if di >= s.own {
+						b.elsewhereNote(sh, d)
+					}
 					if ci == 0 {
 						base[d] = sh
-						key := sh.cell.Class + "\x00" + sh.cell.Why + "\x00" + fmt.Sprint(sh.exposed)
-						if !seen[key] {
+						// Nothing listening at an address elsewhere on the machine says no more than
+						// the same answer at the interface's own.
+						idle := di >= s.own && s.own > 0 && sh.res.Class == engine.Closed
+						if !seen[key] && !idle {
 							seen[key] = true
 							shots = append(shots, sh)
 						}
 						continue
 					}
 					// A sender some rule singles out is only worth a line when it fares differently.
-					if g := base[d]; g != nil && g.cell.Class == sh.cell.Class && g.exposed == sh.exposed {
+					if g := base[d]; g != nil && g.cell.Class == sh.cell.Class && g.cell.Otherwise == sh.cell.Otherwise && g.exposed == sh.exposed {
 						continue
 					}
 					shots = append(shots, sh)
@@ -542,8 +907,8 @@ func (b *builder) port(k portKey, vs []*vantage) Port {
 		p.Stated = b.stated(k)
 	}
 	p.Service = b.service(k, shots)
-	p.Reach = reach(shots)
-	p.Views = views(shots, vs)
+	p.Reach = reach(shots, b.crowded)
+	p.Views = views(shots, vs, true)
 
 	var lead *shot
 	pick := func(f func(*shot) bool) bool {
@@ -597,7 +962,7 @@ func (b *builder) port(k portKey, vs []*vantage) Port {
 			p.Finding, p.Severity = Limited, "info"
 			p.Title += "."
 		}
-	case pick(func(s *shot) bool { return s.res.Class == engine.Undecided }):
+	case pick(func(s *shot) bool { return s.end() == engine.Undecided }):
 		p.Finding, p.Severity, p.Title = Undecided, "unknown", "Not decided."
 		p.Reach = "not known"
 	case b.loopbackOnly(k):
@@ -605,13 +970,13 @@ func (b *builder) port(k portKey, vs []*vantage) Port {
 		p.Finding, p.Severity, p.Title, p.Reach = Local, "ok", "Listens on this machine only.", "this machine only"
 	default:
 		yes := func(s *shot) bool { return s.cell.Allowed != nil && *s.cell.Allowed }
-		stopped := func(s *shot) bool { return s.res.Class == engine.Filtered || s.res.Class == engine.Rejected }
+		stopped := func(s *shot) bool { return s.end() == engine.Filtered || s.end() == engine.Rejected }
 		switch {
 		case pick(func(s *shot) bool { return yes(s) && stopped(s) }):
 			p.Finding, p.Severity, p.Title = Shadowed, "low", tool+" allows it, yet another rule stops it."
-		case pick(func(s *shot) bool { return yes(s) && s.res.Class == engine.Closed }):
+		case pick(func(s *shot) bool { return yes(s) && s.end() == engine.Closed }):
 			p.Finding, p.Severity, p.Title = Dead, "low", tool+" allows it, and nothing is listening."
-		case b.publisher(k) != nil && pick(func(s *shot) bool { return s.res.Class == engine.Closed }):
+		case b.publisher(k) != nil && pick(func(s *shot) bool { return s.end() == engine.Closed }):
 			p.Finding, p.Severity, p.Title = Dead, "low", "Docker publishes it, and nothing answers."
 		case pick(stopped):
 			p.Finding, p.Severity, p.Title = Blocked, "ok", "Stopped by the firewall."
@@ -621,10 +986,47 @@ func (b *builder) port(k portKey, vs []*vantage) Port {
 		}
 	}
 	p.Why, p.Rewrite, p.Deciding = lead.cell.Why, lead.cell.Rewrite, lead.cell.Deciding
-	if p.Finding == Local {
+	// Past the ceiling of senders, "nobody gets through" is no finding: a sender that was not
+	// asked may. What was found reachable stands; what would be ruled out is not decided.
+	notAsked := func() {
+		p.Finding, p.Severity = Undecided, "unknown"
+		p.Title = "No sender that was asked gets through, and not every sender was asked."
+		p.Reach = nobodyAsked
+		p.Why, p.Rewrite, p.Deciding = sendersCut, nil, nil
+	}
+	switch p.Finding {
+	case Local:
 		p.Why, p.Rewrite, p.Deciding = b.boundTo(k), nil, nil
+		switch {
+		case !b.crowded:
+		case b.localnet():
+			// With route_localnet a rule can send a packet from outside to the loopback, for
+			// one sender as for all: this port is as open a question as the others.
+			notAsked()
+		default:
+			// The kernel drops a packet from outside for the loopback, whoever sent it. What
+			// was not asked changes nothing here, and no view of the port is left open.
+			p.Views = views(shots, vs, false)
+		}
+	case Undecided:
+		p.Deciding = nil // nothing has settled it
+	case Shadowed, Dead, Blocked, Closed:
+		if b.crowded {
+			notAsked()
+		}
 	}
 	return p
+}
+
+// localnet reports whether the kernel lets a packet from outside through to the loopback
+// addresses on some interface (route_localnet). Without it such a packet is dropped as a martian.
+func (b *builder) localnet() bool {
+	for _, on := range b.h.RouteLocalnet {
+		if on {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *builder) loopbackOnly(k portKey) bool {
@@ -712,7 +1114,7 @@ func (b *builder) service(k portKey, shots []*shot) string {
 }
 
 // views sums the packets up per place they came from.
-func views(shots []*shot, vs []*vantage) []View {
+func views(shots []*shot, vs []*vantage, partial bool) []View {
 	out := []View{}
 	for _, v := range vs {
 		var asked, ok [2]bool
@@ -735,8 +1137,8 @@ func views(shots []*shot, vs []*vantage) []View {
 				seen[sh.cell.From] = true
 				named = append(named, sh.cell.From)
 			}
-			undecided = undecided || sh.res.Class == engine.Undecided
-			stopped = stopped || sh.res.Class == engine.Filtered || sh.res.Class == engine.Rejected
+			undecided = undecided || sh.end() == engine.Undecided
+			stopped = stopped || sh.end() == engine.Filtered || sh.end() == engine.Rejected
 		}
 		w := View{Vantage: v.ID}
 		switch {
@@ -748,9 +1150,12 @@ func views(shots []*shot, vs []*vantage) []View {
 			case asked[0] && asked[1] && !ok[0]:
 				w.Note = "IPv6 only"
 			}
+		case len(named) > 0 && v.cut && partial:
+			// not every sender was asked from here: these get through, and others may
+			w.State, w.Note = ViewSome, "at least "+list(few(named))
 		case len(named) > 0:
-			w.State, w.Note = ViewSome, list(named)+" only"
-		case undecided:
+			w.State, w.Note = ViewSome, list(few(named))+" only"
+		case undecided || (v.cut && partial):
 			w.State = ViewUndecided
 		case stopped:
 			w.State = ViewStopped
@@ -762,8 +1167,9 @@ func views(shots []*shot, vs []*vantage) []View {
 	return out
 }
 
-// reach says who gets through, in a few words.
-func reach(shots []*shot) string {
+// reach says who gets through, in a few words. partial says not every sender was asked: then
+// those found are the least of it, and "nobody" and "only" would say more than is known.
+func reach(shots []*shot, partial bool) string {
 	type fam struct{ asked, ok bool }
 	type near struct {
 		iface string
@@ -858,9 +1264,14 @@ func reach(shots []*shot) string {
 			parts = append(parts, p)
 		}
 	}
-	parts = append(parts, named...)
-	if len(parts) == 0 {
+	parts = append(parts, few(named)...)
+	switch {
+	case len(parts) == 0 && partial:
+		return nobodyAsked
+	case len(parts) == 0:
 		return "nobody"
+	case partial:
+		return "at least " + list(parts)
 	}
 	return list(parts) + " only"
 }
@@ -978,8 +1389,36 @@ func (b *builder) sum(rep *Report, vantages int) {
 	if b.f != nil {
 		tool = b.f.Tool
 	}
+	// A scan that stopped at a ceiling found what it found and rules nothing else out.
+	notAsked := ""
+	switch {
+	case b.crowded && b.cut:
+		notAsked = "not every sender and not every port was asked"
+	case b.crowded:
+		notAsked = "not every sender was asked"
+	case b.cut:
+		notAsked = "not every port was asked"
+	}
 	reached := plural(n, "port") + " can be reached from outside"
 	var detail []string
+	if notAsked != "" && n > 0 {
+		reached = "At least " + reached
+		detail = append(detail, sentence(notAsked))
+	}
+	// Each port that was asked in a long range stands for the ports up to the next one asked.
+	const inPart = "A long range of ports was asked about in part: a port in it stands for the ports up to the next one asked."
+	if b.more {
+		reached = "At least " + strings.TrimPrefix(reached, "At least ")
+		detail = append(detail, inPart)
+	}
+	least := b.more // whether "at least" was said of a range asked in part
+	undecided := func(u int, one string) string {
+		if b.moreUndecided {
+			least = true
+			return "At least " + plural(u, one) + " could not be decided."
+		}
+		return plural(u, one) + " could not be decided."
+	}
 	switch {
 	case vantages == 0:
 		rep.Headline = "No outside network interface was found, so nothing was asked."
@@ -991,6 +1430,14 @@ func (b *builder) sum(rep *Report, vantages int) {
 		}
 		if root {
 			detail = append(detail, "The kernel shows them to root only. Run it again with sudo.")
+		}
+		u = 0
+	case n == 0 && notAsked != "":
+		rep.Headline = "Nothing was found reachable from outside, but " + notAsked + "."
+	case n == 0 && u > 0:
+		rep.Headline = undecided(u, "port")
+		if rep.Counts.Stopped+rep.Counts.Quiet > 0 {
+			detail = append(detail, "No other port can be reached from outside.")
 		}
 		u = 0
 	case n == 0:
@@ -1018,12 +1465,14 @@ func (b *builder) sum(rep *Report, vantages int) {
 		detail = append(detail, "Docker publishes "+fmt.Sprint(docker)+" of the others with rules of its own, which never pass "+tool+"'s list.")
 	}
 	if u > 0 {
-		verb := " could not be decided."
+		one := "port"
 		if n > 0 {
-			detail = append(detail, plural(u, "more port")+verb)
-		} else {
-			detail = append(detail, plural(u, "port")+verb)
+			one = "more port"
 		}
+		detail = append(detail, undecided(u, one))
+	}
+	if least && !b.more {
+		detail = append(detail, inPart)
 	}
 	rep.Detail = strings.Join(detail, " ")
 }

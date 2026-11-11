@@ -403,6 +403,58 @@ func TestJudge(t *testing.T) {
 	}
 }
 
+// A port the kernel answers on has to be a port a scan asks about. Here fifteen hundred ports
+// are redirected to sshd: the scan has rows for the two ends, and a port between them counts as
+// asked because the scan answers for it when asked. A port nothing in the snapshot leads to does
+// not, and that is what the lab reports.
+func TestUnasked(t *testing.T) {
+	const snap = "# seaward snapshot 1\n### meta\nhost box\nroot yes\n### iptables-save\n" +
+		"*nat\n:PREROUTING ACCEPT [0:0]\n:INPUT ACCEPT [0:0]\n:OUTPUT ACCEPT [0:0]\n:POSTROUTING ACCEPT [0:0]\n" +
+		":SEND - [0:0]\n-A PREROUTING -p tcp -m tcp --dport 8000:9500 -j SEND\n-A SEND -p tcp -j REDIRECT --to-ports 22\nCOMMIT\n" +
+		"*filter\n:INPUT DROP [0:0]\n:FORWARD DROP [0:0]\n:OUTPUT ACCEPT [0:0]\n-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT\nCOMMIT\n" +
+		"### ss\ntcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:((\"sshd\",pid=830,fd=3))\n" +
+		"### ip-addr\n[{\"ifindex\":2,\"ifname\":\"eth0\",\"flags\":[\"BROADCAST\",\"UP\",\"LOWER_UP\"],\"link_type\":\"ether\",\"addr_info\":[{\"family\":\"inet\",\"local\":\"203.0.113.10\",\"prefixlen\":24,\"scope\":\"global\"}]}]\n" +
+		"### ip-route-4\n[{\"dst\":\"default\",\"gateway\":\"203.0.113.1\",\"dev\":\"eth0\"},{\"dst\":\"203.0.113.0/24\",\"dev\":\"eth0\",\"scope\":\"link\"}]\n"
+	me, other := netip.MustParseAddr("203.0.113.10"), netip.MustParseAddr("203.0.113.50")
+	from := netip.MustParseAddr("198.51.100.7")
+	probes := []Probe{
+		{Iif: "eth0", Src: from, Dst: me, Proto: "tcp", Dport: 22},    // a listener
+		{Iif: "eth0", Src: from, Dst: me, Proto: "tcp", Dport: 8000},  // an end of the range
+		{Iif: "eth0", Src: from, Dst: me, Proto: "tcp", Dport: 8500},  // inside it
+		{Iif: "eth0", Src: from, Dst: me, Proto: "tcp", Dport: 7777},  // nothing leads here
+		{Iif: "eth0", Src: from, Dst: me, Proto: "udp", Dport: 8500},  // the range is tcp
+		{Iif: "eth0", Src: from, Dst: me, Proto: "tcp", Dport: 7778},  // the kernel did not answer
+		{Iif: "eth0", Src: from, Dst: other, Proto: "tcp", Dport: 80}, // not this machine's address
+		{Iif: "eth0", Src: from, Dst: me, Proto: "tcp", Dport: 7777},  // said once
+	}
+	reals := map[int]Real{}
+	for i := range probes {
+		reals[i] = Real{ID: i, Outcome: OutOpen}
+	}
+	reals[5] = Real{ID: 5, Outcome: OutSilent}
+	missed, err := Unasked(snap, probes, reals)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range missed {
+		got = append(got, fmt.Sprintf("%s %d %s", m.Probe.Proto, m.Probe.Dport, m.Said))
+	}
+	if strings.Join(got, ", ") != "tcp 7777 , udp 8500 " {
+		t.Errorf("unasked: %q, want tcp 7777 and udp 8500", got)
+	}
+	if s := missed[0].String(); s != "the kernel answers eth0 198.51.100.7 203.0.113.10 tcp 7777, and a scan does not ask about tcp port 7777" {
+		t.Error(s)
+	}
+	// A port the scan asks about and calls stopped, while the kernel answers on it.
+	stopped := strings.Replace(snap, "-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT\n", "", 1)
+	missed, err = Unasked(stopped, probes[:3], reals)
+	if err != nil || len(missed) != 3 || missed[0].Said != "blocked" || missed[2].Said != "blocked" ||
+		missed[2].String() != "the kernel answers eth0 198.51.100.7 203.0.113.10 tcp 8500, and a scan calls tcp port 8500 blocked" {
+		t.Errorf("a port the scan calls stopped: %v, %v", missed, err)
+	}
+}
+
 func TestAgrees(t *testing.T) {
 	cases := []struct {
 		c engine.Class

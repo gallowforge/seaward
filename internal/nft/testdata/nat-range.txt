@@ -1,0 +1,20 @@
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		tcp dport 80 redirect to :8000-8010
+		tcp dport 81 redirect to :8000-8010 random
+		tcp dport 82 redirect to :8000-8010 fully-random
+		tcp dport 83 dnat to 203.0.113.10:8200-8210 persistent
+		tcp dport 84 dnat to 203.0.113.10:8200-8210 random,persistent
+		tcp dport 85 dnat to 203.0.113.10-203.0.113.12
+		tcp dport 86 dnat to 203.0.113.10-203.0.113.12:8300-8310
+		udp dport 53 redirect to :5300-5310
+	}
+}
+table ip6 nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		tcp dport 80 dnat to [2001:db8:1::10]:8000-8010
+		tcp dport 81 dnat to 2001:db8:1::10-2001:db8:1::12
+	}
+}

@@ -125,7 +125,7 @@ func checkShape(t *testing.T, rs *rules.Ruleset) {
 		if tb == nil || tb.Chains == nil {
 			t.Fatal("a nil table, or one without a chain table")
 		}
-		if tb.Family != "ip" && tb.Family != "ip6" && tb.Family != "inet" {
+		if tb.Family != "ip" && tb.Family != "ip6" && tb.Family != "inet" && tb.Family != "netdev" {
 			t.Fatalf("a table of family %q", tb.Family)
 		}
 		if tb.Origin == "" {
@@ -144,6 +144,13 @@ func checkShape(t *testing.T, rs *rules.Ruleset) {
 			}
 			if c.Base && c.Policy != rules.Accept && c.Policy != rules.Drop {
 				t.Fatalf("chain %s has the policy %d", name, c.Policy)
+			}
+			// An ingress chain is walked for the interfaces it names and for no other hook.
+			if (c.Hook == rules.HookIngress) != (len(c.Devs) > 0) {
+				t.Fatalf("chain %s: hook %q with the interfaces %q", name, c.Hook, c.Devs)
+			}
+			if tb.Family == "netdev" && c.Hook != "" && c.Hook != rules.HookIngress {
+				t.Fatalf("chain %s of a netdev table is walked at hook %q", name, c.Hook)
 			}
 			for _, r := range c.Rules {
 				if r == nil {

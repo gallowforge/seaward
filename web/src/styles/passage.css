@@ -106,6 +106,7 @@
   font-size: 1rem;
   line-height: 1.5;
   text-wrap: pretty;
+  overflow-wrap: anywhere;
 }
 .pass-none {
   color: var(--ink-2);
@@ -127,6 +128,7 @@
 }
 .from-h i {
   color: var(--ink);
+  overflow-wrap: anywhere;
 }
 .from-n {
   color: var(--ink-3);
@@ -186,8 +188,9 @@ details[open] > summary.from-h::after {
   color: var(--ink-2);
   overflow-wrap: anywhere;
 }
+/* set off from the address by a space of the text, one that does not break, and this much more */
 .fam {
-  margin-left: 0.625rem;
+  margin-left: 0.375rem;
   white-space: nowrap;
 }
 
@@ -201,7 +204,8 @@ details[open] > summary.from-h::after {
 }
 .way {
   position: relative;
-  flex: 1;
+  /* as wide as there is room for; where a long path leaves none, the word at its end gives way first */
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: flex-start;
@@ -350,13 +354,18 @@ details[open] > summary.from-h::after {
   font-weight: 600;
   line-height: 1;
 }
+/* how it ends, in the command's words. On one line wherever the lane has room; beside a crowded
+   lane it is set on two ("gets" over "through") before any mark has to move closer to the next.
+   The height stays that of the lane, so the two lines stand above and below the lane's own line,
+   in the room the track keeps clear over and under itself. */
 .t-word {
-  flex: none;
+  flex: 0 1000 auto;
   height: 1.375rem;
   display: inline-flex;
   align-items: center;
   font-style: italic;
   font-weight: 500;
+  line-height: 1.1;
   color: var(--t);
 }
 
@@ -371,9 +380,15 @@ details[open] > summary.from-h::after {
     align-items: start;
   }
 }
-.why {
+/* an address or a name longer than a line is broken where the line ends, never left to run out */
+.why,
+.either {
   max-width: 40rem;
   text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+.either {
+  margin-top: 0.375rem;
 }
 .ends {
   display: grid;
@@ -392,6 +407,7 @@ details[open] > summary.from-h::after {
 .ends dd {
   color: var(--ink-2);
   overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 .ends dd b {
   color: var(--ink);
@@ -466,6 +482,7 @@ details[open] > summary.from-h::after {
 }
 .effect {
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 .step.quiet .effect {
   font-weight: 400;
@@ -493,21 +510,33 @@ details[open] > summary.from-h::after {
   border-color: var(--alarm);
   background: var(--alarm);
 }
-/* the rule itself, exactly as the machine holds it */
+/* the rule itself, exactly as the machine holds it. One too long for its box is broken the way
+   the command breaks it: before an option, and its further lines stand two columns in, so it can
+   still be told from the next line. A word longer than a line is broken where the line ends. */
 .rule {
+  --in: 2ch;
   margin-top: 0.3125rem;
   max-width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 0.75rem 0.5rem calc(0.75rem + var(--in));
   border-left: 2px solid var(--hair);
   background: var(--paper);
   font-size: 0.78125rem;
   line-height: 1.5;
-  white-space: pre;
+  text-indent: calc(var(--in) * -1);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
   overflow-x: auto;
   color: var(--ink);
 }
 .rule code {
   font-size: inherit;
+}
+/* an option with what belongs to it ("-j ACCEPT", "! -i eth0"): kept whole where there is room */
+.rule .opt {
+  display: inline-block;
+  max-width: 100%;
+  text-indent: 0;
 }
 .step.quiet .rule {
   color: var(--ink-2);

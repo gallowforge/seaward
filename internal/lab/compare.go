@@ -5,11 +5,13 @@ package lab
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/gallowforge/seaward/internal/engine"
+	"github.com/gallowforge/seaward/internal/scan"
 	"github.com/gallowforge/seaward/internal/snapshot"
 )
 
@@ -52,6 +54,107 @@ func EnginePredictor(snap string, probes []Probe) (res []engine.Result, err erro
 		res = append(res, engine.Run(rs, h, engine.Probe{Iif: p.Iif, Src: p.Src, Dst: p.Dst, Proto: p.Proto, Dport: p.Dport}))
 	}
 	return res, nil
+}
+
+// A Miss is a probe the kernel answered, sent to one of the machine's own addresses, that a scan
+// of the same snapshot does not account for.
+type Miss struct {
+	Probe Probe
+	// Said is the scan's finding for the port ("blocked", "closed" ...), or "" when the scan does
+	// not ask about the port at all.
+	Said string
+	// Stand is set when the finding is that of another port: the port asked about in a long
+	// range that the report lets stand for this one.
+	Stand uint16
+}
+
+func (m Miss) String() string {
+	switch {
+	case m.Said == "":
+		return fmt.Sprintf("the kernel answers %s, and a scan does not ask about %s port %d", m.Probe, m.Probe.Proto, m.Probe.Dport)
+	case m.Stand != 0:
+		return fmt.Sprintf("the kernel answers %s, and a scan lets port %d stand for it, which it calls %s", m.Probe, m.Stand, m.Said)
+	}
+	return fmt.Sprintf("the kernel answers %s, and a scan calls %s port %d %s", m.Probe, m.Probe.Proto, m.Probe.Dport, m.Said)
+}
+
+// Unasked holds a whole scan against the kernel. A probe names its port and its sender. A scan
+// has to find the ports by itself, from the listeners and from the rules that send a packet
+// somewhere else, and the senders from the conditions in the rules. So for every probe the
+// kernel answered, the scan of the same snapshot must ask about that port (have a row for it, or
+// a long range asked in part that holds it), and must not say of it that nobody gets through:
+// its finding is reachable or undecided, never blocked, closed, dead, shadowed or local. In a
+// range asked in part the report lets a port stand for the ports up to the next one asked, so
+// the same is wanted of the port that stands for the probe's.
+func Unasked(snap string, probes []Probe, reals map[int]Real) (missed []Miss, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("scan panic: %v", p)
+		}
+	}()
+	b, err := snapshot.Parse(snap)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot.Parse: %v", err)
+	}
+	rs, h, err := snapshot.Build(b)
+	if err != nil {
+		return nil, fmt.Errorf("snapshot.Build: %v", err)
+	}
+	own := map[netip.Addr]bool{}
+	for n, i := range h.Interfaces {
+		// The lab's two outside interfaces are ends of veth pairs, which a scan takes for the way
+		// to a container and asks nothing from. They stand for network cards here.
+		if (i.Name == "eth0" || i.Name == "eth1") && i.Kind == "veth" {
+			h.Interfaces[n].Kind = ""
+		}
+		for _, a := range i.Addrs {
+			own[a.Addr()] = true
+		}
+	}
+	type key struct {
+		proto string
+		port  uint16
+	}
+	rows := map[key]string{}
+	for _, p := range scan.Run(rs, h).Ports {
+		rows[key{p.Proto, p.Port}] = p.Finding
+	}
+	done := map[key]bool{}
+	for i, p := range probes {
+		k := key{p.Proto, p.Dport}
+		if reals[i].Outcome != OutOpen || !own[p.Dst] || done[k] {
+			continue
+		}
+		done[k] = true // a port is looked into, and said, once
+		stopped := func(said string) bool {
+			return said != scan.Exposed && said != scan.Open && said != scan.Limited && said != scan.Undecided
+		}
+		if said, asked := rows[k]; asked {
+			if stopped(said) {
+				missed = append(missed, Miss{Probe: p, Said: said})
+			}
+			continue
+		}
+		in := scan.One(rs, h, p.Proto, p.Dport)
+		if len(in) == 0 {
+			missed = append(missed, Miss{Probe: p})
+			continue
+		}
+		if stopped(in[0].Finding) {
+			missed = append(missed, Miss{Probe: p, Said: in[0].Finding})
+			continue
+		}
+		// The row that stands for it in the report: the nearest port below that was asked.
+		for port := p.Dport - 1; port > 0; port-- {
+			if said, asked := rows[key{p.Proto, port}]; asked {
+				if stopped(said) {
+					missed = append(missed, Miss{Probe: p, Said: said, Stand: port})
+				}
+				break
+			}
+		}
+	}
+	return missed, nil
 }
 
 // Verdict is one probe: what the kernel did, what the engine said, and whether they fit.

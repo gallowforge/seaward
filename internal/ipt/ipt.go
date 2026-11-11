@@ -116,7 +116,7 @@ func ParseSave(text string, o Options) (tables []*rules.Table, notes []string, e
 				incompatible[name] = true
 				notes = append(notes, fmt.Sprintf("the %s table %s uses nftables features %s cannot show, so it is left to the nftables reader", tool, name, tool))
 			} else if strings.Contains(line, "legacy tables present") {
-				notes = append(notes, "iptables-save says legacy iptables tables are also loaded; they are in the legacy save output")
+				notes = append(notes, "legacy iptables tables are also loaded, iptables-save says; they are in the legacy save output")
 			}
 			continue
 		case strings.HasPrefix(line, "*"):

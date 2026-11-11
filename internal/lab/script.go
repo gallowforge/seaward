@@ -190,6 +190,14 @@ func Script(sc *Scenario, opt ScriptOptions) string {
 		w(`ip -n peer addr add %s dev lo%s`, netip.PrefixFrom(a, a.BitLen()), nodad(a))
 		w(`ip neigh replace %s lladdr %s dev eth0 nud permanent`, a, macPeerEth0)
 	}
+	if len(sc.Loopback) > 0 {
+		w(`# Spare addresses on the loopback interface. They lie in eth0's subnet, so the peer needs`)
+		w(`# no route for them, only to be told they answer at the host's end of the cable.`)
+		for _, a := range sc.Loopback {
+			w(`ip addr add %s dev lo%s`, netip.PrefixFrom(a, a.BitLen()), nodad(a))
+			w(`ip -n peer neigh replace %s lladdr %s dev veth0 nud permanent`, a, macHostEth0)
+		}
+	}
 
 	if sc.UsesEth1() {
 		w(`# A second outside network on eth1, played by the peer2 namespace.`)

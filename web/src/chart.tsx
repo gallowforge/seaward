@@ -5,7 +5,7 @@
 import { useLayoutEffect, useRef } from 'preact/hooks'
 import { Passage } from './passage'
 import type { Report, ViewState } from './types'
-import { lanes, type Berth, type Land, type Lane, type Sea, type Shore } from './view'
+import { laneNote, lanes, type Berth, type Land, type Lane, type Sea, type Shore } from './view'
 
 interface ChartProps {
   report: Report
@@ -155,7 +155,7 @@ function LaneRow({ l, report, vantage, open, onToggle, onClose }: RowProps) {
         </span>
         <span class="c sea" aria-hidden="true">
           <span class="run" />
-          {l.view?.note && l.sea !== 'none' && <i class="remark">{l.view.note}</i>}
+          {l.view?.note && l.sea !== 'none' && <i class="remark">{laneNote(p, l.view)}</i>}
         </span>
         <span class="c shore" aria-hidden="true">
           <span class="run" />
@@ -197,6 +197,7 @@ function LaneRow({ l, report, vantage, open, onToggle, onClose }: RowProps) {
               {p.title}
             </span>
           )}
+          {l.reason && <span class="title">{l.reason}</span>}
         </span>
         <span class="c caret" aria-hidden="true" />
       </a>

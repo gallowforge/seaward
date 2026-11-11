@@ -201,6 +201,7 @@ func buildRules(b *Bundle, rs *rules.Ruleset, h *host.Host, notRoot bool) {
 				rs.Sets[k] = s
 			}
 			rs.Notes = append(rs.Notes, n.Notes...)
+			rs.Unfollowed = append(rs.Unfollowed, n.Unfollowed...)
 		}
 	}
 }

@@ -19,8 +19,17 @@ type Report struct {
 	Ports    []Port    `json:"ports"`
 	// Unread lists rule sources that exist on the machine and could not be read.
 	Unread []string `json:"unread,omitempty"`
-	Notes  []string `json:"notes,omitempty"`
-	Counts Counts   `json:"counts"`
+	// Unfollowed lists the chains outside the path Seaward walks that packets of this scan pass,
+	// and that left a port undecided or may drop what the walked rules let through.
+	Unfollowed []string `json:"unfollowed,omitempty"`
+	// Partial is set when the scan stopped at one of its two ceilings (the groups of senders asked
+	// about from one place, the ports asked about): a sentence for each. What lies beyond a
+	// ceiling was not asked, so a report with Partial rules nothing out: its headline says so, a
+	// port nobody that was asked gets through to is undecided, and "seaward scan --check" does
+	// not exit 0.
+	Partial []string `json:"partial,omitempty"`
+	Notes   []string `json:"notes,omitempty"`
+	Counts  Counts   `json:"counts"`
 	// Caveat is the limit every report has, in one sentence.
 	Caveat string `json:"caveat"`
 }
@@ -109,6 +118,10 @@ type Cell struct {
 	IPv6     bool     `json:"ipv6,omitempty"`
 	Class    string   `json:"class"`
 	Possible []string `json:"possible,omitempty"`
+	// Otherwise is set on an undecided packet when all that was not seen is a chain that can do
+	// no more than drop it: it is dropped there, or it ends this way. Why, Deciding and Steps then
+	// tell how it ends in the rules that were followed.
+	Otherwise string `json:"otherwise,omitempty"`
 	// Allowed is what the firewall manager says about this packet; absent without a manager.
 	Allowed  *bool    `json:"allowed,omitempty"`
 	Why      string   `json:"why"`

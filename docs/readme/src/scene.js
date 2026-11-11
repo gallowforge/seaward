@@ -503,12 +503,21 @@ async function init() {
   // boxes of the named elements of each capture, measured when it was made (texture px)
   const BOX = await fetch('/shots/boxes.json').then(r => r.json()).catch(() => ({}));
   const made = [];
-  // a pane of terminal output is cut between two printed lines, never through one
+  // a pane of terminal output is cut between two printed lines, never through one; and it may end where a named
+  // element of its capture ends (`until`), so that it shows the whole of a paragraph however many lines the
+  // output before it took this time
   for (const s of specs) {
-    const rows = s.parent === undefined && s.tex && s.crop && s.snap !== false && BOX[s.tex.replace(/\.png$/, '')] && BOX[s.tex.replace(/\.png$/, '')]._rows;
+    const page = s.parent === undefined && s.tex && s.crop && BOX[s.tex.replace(/\.png$/, '')];
+    if (page && s.until) {
+      const b = page[s.until];
+      if (!b) throw new Error(`no box "${s.until}" in ${s.tex}`);
+      s.crop = [s.crop[0], s.crop[1], s.crop[2], b[1] + b[3] - s.crop[1]];
+    }
+    const rows = page && s.snap !== false && page._rows;
     if (!rows || !rows.length) continue;
     const near = (y, edge) => rows.map(r => r[edge]).reduce((a, b) => (Math.abs(b - y) < Math.abs(a - y) ? b : a));
-    const top = s.crop[1] > 0 ? Math.max(0, near(s.crop[1], 0) - 8) : 0, bottom = near(s.crop[1] + s.crop[3], 1) + 8;
+    // (the margin under the last line is less than the room over a line's tallest letters, so the next line shows no tips)
+    const top = s.crop[1] > 0 ? Math.max(0, near(s.crop[1], 0) - 8) : 0, bottom = near(s.crop[1] + s.crop[3], 1) + 5;
     s.crop = [s.crop[0], top, s.crop[2], bottom - top];
   }
   specs.forEach((s, i) => { if (s.parent === undefined) { made[i] = makeWindow(s, texes[i]); made[i].seq = seqs[i]; } });

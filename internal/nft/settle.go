@@ -38,7 +38,7 @@ func (p *parser) settle(t *table, sh *rules.Table) *rules.Table {
 			}
 		case len(sc.Rules) != len(c.raw):
 			nc.Rules = p.rulesOf(t, c.raw)
-			p.note(fmt.Sprintf("iptables-save printed %s for the chain %s of %s and the nft listing has %d; %s", nRules(len(sc.Rules)), clip(name), where, len(c.raw), lost))
+			p.note(fmt.Sprintf("for the chain %s of %s, iptables-save printed %s and the nft listing has %d; %s", clip(name), where, nRules(len(sc.Rules)), len(c.raw), lost))
 		default:
 			for i, r := range c.raw {
 				if sr := sc.Rules[i]; sr != nil && iptablesReads(r.obj()) {
@@ -58,7 +58,7 @@ func (p *parser) settle(t *table, sh *rules.Table) *rules.Table {
 	// that; one with rules is a real disagreement.
 	for _, name := range sh.Order {
 		if sc := sh.Chains[name]; sc != nil && t.chains[name] == nil && len(sc.Rules) > 0 {
-			p.note(fmt.Sprintf("iptables-save printed a chain %s with %s in %s that the nft listing does not have; seaward left it out, since the nft listing is what the kernel holds", clip(name), nRules(len(sc.Rules)), where))
+			p.note(fmt.Sprintf("a chain %s with %s in %s is in what iptables-save printed and not in the nft listing; seaward left it out, since the nft listing is what the kernel holds", clip(name), nRules(len(sc.Rules)), where))
 		}
 	}
 	return out

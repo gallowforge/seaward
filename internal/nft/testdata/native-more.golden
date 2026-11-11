@@ -619,7 +619,7 @@ table inet t (nft)
         match l4proto in {6}
         match dport in {82}
         match nfproto in {4}
-        dnat 172.17.0.2 port 8080
+        dnat 172.17.0.2 port 8080 random
     tcp dport 83 dnat ip6 to 2001:db8::5
         match l4proto in {6}
         match dport in {83}
@@ -675,6 +675,17 @@ table inet t (nft)
     meta cgroup 1 accept
         UNKNOWN the meta cgroup match looks at which local program sent the packet, which seaward does not model
         accept
+  chain ing: filter hook ingress priority 0 policy accept on lo
+    ip saddr 198.51.100.7 drop
+        match nfproto in {4}
+        match saddr in {198.51.100.7}
+        drop
+table netdev nd (nft)
+  chain ingress0: filter hook ingress priority 0 policy accept on lo
+    ip saddr 198.51.100.7 drop
+        match nfproto in {4}
+        match saddr in {198.51.100.7}
+        drop
 table ip dormant (nft)
   chain c: filter hook input priority 0 policy drop (not running)
     tcp dport 22 accept
@@ -733,9 +744,10 @@ set @inet/t/ty {198.51.100.7 . 22}
 set @inet/t/vcatch {22 : accept, * : drop}
 set @inet/t/vconcat {198.51.100.0/24 . 22 : accept, 192.0.2.7 . 80-90 : drop}
 set @inet/t/vif {"docker0" : accept, "eth0" : jump side}
-note: the netdev table nd was left out: it filters packets on one interface, before the kernel's normal packet path, which seaward does not follow
-note: the bridge table br was left out: it filters frames crossing a bridge, which seaward does not follow
 note: the arp table ar was left out: it filters ARP packets, which seaward does not follow
-note: the chain ing of table inet t was left out: it hooks in at ingress, outside the packet path seaward follows
 note: the flowtable ft of table inet t was left out: it only speeds up connections that the rules already let through
+note: the chain egress0 of table netdev nd was left out: it has no rules and lets everything pass
+note: the chain fw of table bridge br was left out: it filters frames switched between the ports of a bridge, which never enter the packet path seaward follows
 note: the table ip dormant is switched off (flags dormant): the kernel runs none of its chains, so seaward does not either
+unfollowed: in lo only-stops walked: the chain ing of table inet t acts on packets as they pass lo, underneath the bridge, bond or VLAN interface they arrive on, where seaward does not follow them
+unfollowed: in lo only-stops walked: the chain ingress0 of table netdev nd acts on packets as they pass lo, underneath the bridge, bond or VLAN interface they arrive on, where seaward does not follow them

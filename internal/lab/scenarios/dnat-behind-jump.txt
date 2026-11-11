@@ -1,0 +1,55 @@
+name: dnat-behind-jump
+about: The rule that names the port and the rule that rewrites the destination are two rules. The
+about: first jumps, or goes to another chain, and that chain or one further on does the rewriting.
+about: The packet is rewritten all the same: nothing listens on the ports it was sent to, and it
+about: gets through. A packet the chain returns before its rewrite keeps the port it came for, and
+about: so does one for a port the calling rule does not name. A scan asks about every port that
+about: can come as far as a rewrite, not only about the ports of the rule that holds it.
+--- iptables
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+:FWD - [0:0]
+:DEEP - [0:0]
+:LAST - [0:0]
+:NARROW - [0:0]
+-A PREROUTING -p tcp -m tcp --dport 8000:8010 -j FWD
+-A PREROUTING -p tcp -m tcp --dport 8100 -g DEEP
+-A PREROUTING -p tcp -m tcp --dport 8300:8310 -j NARROW
+-A PREROUTING -p udp -m udp --dport 5300 -j FWD
+-A FWD -p tcp -m tcp --dport 8005 -j RETURN
+-A FWD -p tcp -j DNAT --to-destination 203.0.113.10:9000
+-A FWD -p udp -j REDIRECT --to-ports 5353
+-A DEEP -j LAST
+-A LAST -p tcp -j REDIRECT --to-ports 9001
+-A NARROW -p tcp -m tcp --dport 8305 -j REDIRECT --to-ports 9000
+-A NARROW -p tcp -m tcp --dport 8400 -j REDIRECT --to-ports 9000
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m multiport --dports 9000,9001 -j ACCEPT
+-A INPUT -p udp -m udp --dport 5353 -j ACCEPT
+-A INPUT -p tcp -m multiport --dports 8005,8304,8400 -j REJECT --reject-with tcp-reset
+COMMIT
+--- listen
+host tcp 0.0.0.0 9000
+host tcp 0.0.0.0 9001
+host udp 0.0.0.0 5353
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 8000 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8010 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8005 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8011 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8100 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8101 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8305 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8304 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8400 want:refused
+eth0 198.51.100.7 203.0.113.10 udp 5300 want:open
+eth0 198.51.100.7 203.0.113.10 udp 5301 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 8003 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 8100 want:open

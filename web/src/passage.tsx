@@ -2,7 +2,7 @@
 // step by step through the rules, with the same steps written out under it.
 import { useLayoutEffect, useRef } from 'preact/hooks'
 import type { Cell, Port, Report } from './types'
-import { classWords, contradicts, endOf, hookName, packetGroups, passage, place, type HookGroup, type StepRow } from './view'
+import { contradicts, eitherWay, endOf, endWords, hangsOn, hookName, packetGroups, passage, place, ruleGroups, type HookGroup, type StepRow } from './view'
 
 interface PassageProps {
   report: Report
@@ -17,7 +17,9 @@ interface PassageProps {
 
 /**
  * Times each mark to the moment the drawn line reaches it, and lets a rule that is wider than
- * its box be scrolled from the keyboard. The page reads the same without either.
+ * its box be scrolled from the keyboard. The page reads the same without either. A long rule is
+ * broken over lines (.rule in passage.css), so none should be wider than its box; one that is all
+ * the same, in a browser that cannot break it, scrolls sideways and has to be reachable.
  */
 function settle(root: HTMLElement | null): void {
   if (!root) return
@@ -51,7 +53,20 @@ export function Passage({ report, port, id, vantage, hot, onClose }: PassageProp
   const groups = packetGroups(report, port, vantage)
   const tool = report.frontend?.tool
   const root = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => settle(root.current), [report, id, vantage])
+  useLayoutEffect(() => {
+    const el = root.current
+    settle(el)
+    // What fits its box at one width does not at another, so the measuring is done again whenever
+    // the passage or a rule in it changes size (the window made narrower, a folded group opened),
+    // and once the typefaces have arrived. Where the browser cannot watch a size (an old one, or
+    // the tests' own), what was measured once stands.
+    void document.fonts?.ready.then(() => settle(root.current))
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const watch = new ResizeObserver(() => settle(root.current))
+    watch.observe(el)
+    for (const rule of el.querySelectorAll('.rule')) watch.observe(rule)
+    return () => watch.disconnect()
+  }, [report, id, vantage])
   // said once: the port's own reason goes at the top unless a packet below gives the same one
   const repeated = !!port.why && (groups[0]?.cells.some((c) => c.why === port.why) ?? false)
   return (
@@ -119,24 +134,40 @@ function Packet({ cell, tool }: { cell: Cell; tool: string | undefined }) {
   const total = cell.steps.length
   const bad = contradicts(cell)
   const end = endOf(cell)
+  // labelled in the command's own words; one that gets nowhere either way, by how the followed rules end it
+  const { label, more } = endWords(cell)
+  const either = eitherWay(cell)
+  const hangs = hangsOn(cell)
   // the whole passage is drawn in well under a second, however many steps it has
   const dur = Math.max(260, Math.min(640, total * 80))
   return (
     <article class={`packet end-${end}${bad ? ' bad' : ''}`} style={{ '--dur': `${dur}ms` }}>
       <h5 class="packet-h">
-        From <i>{cell.from}</i> <span class="addr">({cell.src})</span> to <span class="addr">{cell.dst}</span>
+        {/* senders that are one address are named by it once, as the command names them */}
+        From{' '}
+        {cell.from && cell.from !== cell.src ? (
+          <>
+            <i>{cell.from}</i> <span class="addr">({cell.src})</span>
+          </>
+        ) : (
+          <span class="addr">{cell.src}</span>
+        )}{' '}
+        to <span class="addr">{cell.dst}</span>
+        {/* a space that does not break, so the mark is never alone on a line of its own */}
+        {'\u00a0'}
         <span class="fam">{cell.ipv6 ? 'IPv6' : 'IPv4'}</span>
       </h5>
-      <Track hooks={hooks} total={total} word={cell.class} />
+      <Track hooks={hooks} total={total} word={label} />
       <div class="packet-body">
         <div class="packet-say">
-          <p class="why">{cell.why}</p>
+          {cell.why && <p class="why">{cell.why}</p>}
+          {either && <p class="either">{either}</p>}
           <dl class="ends">
             <div>
               <dt>It ends</dt>
               <dd>
-                <b>{cell.class}</b>
-                {classWords(cell.class) && <span>: {classWords(cell.class)}</span>}
+                <b>{label}</b>
+                {more}
               </dd>
             </div>
             {cell.allowed !== undefined && (
@@ -147,18 +178,12 @@ function Packet({ cell, tool }: { cell: Cell; tool: string | undefined }) {
                 </dd>
               </div>
             )}
-            {cell.possible && cell.possible.length > 0 && (
-              <div>
-                <dt>It could end</dt>
-                <dd>{cell.possible.join(', or ')}</dd>
-              </div>
-            )}
-            {cell.unknowns && cell.unknowns.length > 0 && (
+            {hangs.length > 0 && (
               <div>
                 <dt>It hangs on</dt>
                 <dd>
                   <ul>
-                    {cell.unknowns.map((u) => (
+                    {hangs.map((u) => (
                       <li key={u}>{u}</li>
                     ))}
                   </ul>
@@ -220,13 +245,34 @@ function StepItem({ r, total }: { r: StepRow; total: number }) {
             </span>
           ))}
         </p>
-        {r.step.rule && (
-          <pre class="rule" data-n={r.n}>
-            <code>{r.step.rule}</code>
-          </pre>
-        )}
+        {r.step.rule && <Rule text={r.step.rule} n={r.n} />}
       </div>
     </li>
+  )
+}
+
+/**
+ * The rule as the machine holds it, character for character. Too long for one line, it breaks
+ * the way the command breaks it: before an option, each option whole where there is room.
+ */
+function Rule({ text, n }: { text: string; n: number }) {
+  const pieces = ruleGroups(text)
+  return (
+    <pre class="rule" data-n={n}>
+      <code>
+        {pieces.length === 1
+          ? text
+          : pieces.map((piece, i) =>
+              i % 2 === 1 ? (
+                piece
+              ) : (
+                <span class="opt" key={i}>
+                  {piece}
+                </span>
+              ),
+            )}
+      </code>
+    </pre>
   )
 }
 

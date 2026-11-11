@@ -1,0 +1,39 @@
+name: nat-port-range
+about: REDIRECT and DNAT to a range of ports, written with iptables. The kernel keeps the port the
+about: packet came for when it already lies in the range and takes the first port of the range when
+about: it does not, and the filter table then judges the port it ended up with.
+--- iptables
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -p tcp -m tcp --dport 80 -j REDIRECT --to-ports 8000-8010
+-A PREROUTING -p tcp -m tcp --dport 8103 -j REDIRECT --to-ports 8100-8110
+-A PREROUTING -p tcp -m tcp --dport 82 -j DNAT --to-destination 203.0.113.10:8200-8210
+-A PREROUTING -p tcp -m tcp --dport 8303 -j DNAT --to-destination 203.0.113.10:8300-8310
+-A PREROUTING -p udp -m udp --dport 53 -j REDIRECT --to-ports 5300-5310
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m multiport --dports 8000,8100,8200,8300 -j ACCEPT
+-A INPUT -p udp -m udp --dport 5300 -j ACCEPT
+COMMIT
+--- listen
+host tcp 0.0.0.0 8000
+host tcp 0.0.0.0 8100
+host tcp 0.0.0.0 8103
+host tcp 0.0.0.0 8200
+host tcp 0.0.0.0 8300
+host tcp 0.0.0.0 8303
+host udp 0.0.0.0 5300
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8103 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 82 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8303 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8100 want:open
+eth0 198.51.100.7 203.0.113.10 udp 53 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 80 want:open

@@ -107,7 +107,7 @@ const PANELS = {
     facts: [['{{scan.reachable}}', 'reachable from outside'], ['{{scan.allowed}}', 'of them allowed by&nbsp;ufw'], ['{{scan.exposed}}', 'exposed', true]],
     win: (n, ph) => glass(n, ph, {
       screen: 'scan', crop: [0, 0, 1144, 1054], at: { x: 586, y: 228, w: 364 }, box: 'verdict', card: { grow: 1.1, shift: [0, 0] },
-      phone: { crop: [30, 0, 1084, 900], at: { x: 190.5, y: 392, w: 345 }, card: { grow: 1.03, pad: [6, 7], lift: 46, shift: [2, 0] } },
+      phone: { crop: [30, 0, 1084, 900], at: { x: 190.5, y: 392, w: 345 }, card: { grow: 1.03, pad: [6, 7], lift: 46, shift: [2, 0] }, win: { until: 'rewritten' } },
     }),
   },
   why: {
@@ -115,7 +115,7 @@ const PANELS = {
     line: 'Ask about one port and Seaward walks a packet through the loaded rules. It quotes the rule that rewrote it and the rule that let it in.',
     facts: [['{{why.steps}}', 'steps on this packet&rsquo;s path'], ['{{why.rules}}', 'rules quoted as they are&nbsp;loaded'], ['{{why.packets}}', 'packets followed, IPv4 and&nbsp;IPv6']],
     win: (n, ph) => glass(n, ph, {
-      screen: 'why', crop: [0, 548, 1144, 1054], at: { x: 586, y: 228, w: 364 }, boxes: [['rewrite', { shift: [0, 7] }], ['accept', { shift: [0, 7], breathe: [10, 0.6] }]], card: { grow: 1.0, pad: [14, 2], wide: 10, bezel: 4, lift: 48 },
+      screen: 'why', crop: [0, 548, 1144, 1054], at: { x: 586, y: 228, w: 364 }, boxes: [['rewrite', { shift: [0, 7] }], ['accept', { shift: [0, 7], breathe: [10, 0.6] }]], card: { grow: 1.0, pad: [14, 2], wide: 10, bezel: 4, lift: 48 }, win: { until: 'steps' },
       phone: { crop: [30, 548, 1084, 900], at: { x: 190.5, y: 392, w: 345 }, boxes: [['rewrite', { shift: [0, 6] }], ['accept', { shift: [0, 6], breathe: [10, 0.6] }]], card: { grow: 1.0, lift: 46, pad: [14, 2], wide: 8, bezel: 5 } },
     }),
   },
@@ -124,8 +124,9 @@ const PANELS = {
     line: 'Each scenario loads its rules into a real kernel, in a private network namespace, and sends real packets. The engine has to predict every one.',
     facts: [['{{lab.scenarios}}', 'written scenarios'], ['{{lab.probes}}', 'real packets sent'], ['{{lab.disagreements}}', 'disagreements']],
     win: (n, ph) => glass(n, ph, {
-      screen: 'kernel', crop: [0, 0, 1144, 1054], at: { x: 586, y: 228, w: 364 }, box: 'result', card: { grow: 1.04, shift: [0, 0] },
-      phone: { crop: [30, 0, 1084, 900], at: { x: 190.5, y: 392, w: 345 }, card: { grow: 1.05, pad: [4, 7], lift: 46, shift: [-8, 0] } },
+      screen: 'kernel', crop: [0, 0, 1144, 1054], at: { x: 586, y: 228, w: 364 }, box: 'result', card: { grow: 1.04, shift: [0, 0] }, win: { until: 'about' },
+      // a phone's pane opens at the command: the sentence over it in the session says what the words above the pane say
+      phone: { crop: [30, 100, 1084, 900], at: { x: 190.5, y: 392, w: 345 }, card: { grow: 1.12, pad: [4, 7], lift: 46, shift: [-9, -1.5] } },
     }),
   },
   unknown: {
@@ -211,7 +212,7 @@ function heroPlay(phase) {
 const MARK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 2v6.5M15.5 15.5V22"/><path d="M2 12h17"/><circle cx="20.25" cy="12" r="2.25"/></svg>';
 const SAYS = 'Which ports on this server can really be reached from outside, and the rule that decides each one.';
 const shots = (name, n) => Array.from({ length: FIXED + 1 }, (_, i) => tx(`${name}-${String(i).padStart(2, '0')}`, n));
-const heads = (n) => [tx('m-head-00', n), tx('m-head-01', n)], scans = (n) => [tx('scan', n), tx('fixed', n)];
+const heads = (n) => [tx('m-head-00', n), tx('m-head-01', n)], says = (n) => [tx('m-say-00', n), tx('m-say-01', n)], scans = (n) => [tx('scan', n), tx('fixed', n)];
 const CARD = (n, o) => ({ parent: 1, pad: [10, 0], lift: 66, bezel: 5, radius: 9, breathe: [6, 0.25], afloat: true, glow: 0.25, ...LIFT(n), ...o });
 
 LAYOUTS.hero = {
@@ -234,6 +235,8 @@ LAYOUTS.hero = {
 };
 
 // A phone gets the same three surfaces and the same loop, with the chart as the demo draws it at a phone's width.
+// The head of the page is shown as far as the verdict and no further (m-say), so that the pane can be large enough
+// for its words to be read on a phone: the sample switcher under it is small print at this size.
 LAYOUTS['hero-phone'] = {
   css: [381, 640], dpr: 1080 / 381, fade: [14, 14, 24, 30], cam: [7, 3], motion: 0.75, pool: [0.52, 0.62, 0.85, 0.55], chart: [0.035, 1.5, 0.10, 0.62], lines: 5, play: heroPlay, frames: HERO_FRAMES, driftEvery: 2, moored: true,
   clear: [[-40, -40, 421, 150]],
@@ -242,7 +245,7 @@ LAYOUTS['hero-phone'] = {
   windows: (n) => [
     WIN(n, 'scan', [0, 0, 1144, 620], { x: 232, y: 214, w: 252, z: -360, rot: [4, -10, 0] }, { seq: scans(n), cue: 'head', still: true, fog: 0.18 }),
     WIN(n, 'm-chart-00', [0, 0, 1170, 1752], { x: 262, y: 426, w: 204, z: -40, rot: [2, -8, 0] }, { seq: shots('m-chart', n), cue: 'chart', still: true, snap: false, radius: 15 }),
-    WIN(n, 'm-head-00', [0, 0, 1170, 1800], { x: 76, y: 404, w: 128, z: 30, rot: [2, 9, 0] }, { seq: heads(n), cue: 'head', still: true, snap: false, radius: 14 }),
+    WIN(n, 'm-say-00', [24, 0, 1122, 1083], { x: 84, y: 500, w: 144, z: 30, rot: [2, 9, 0] }, { seq: says(n), cue: 'head', still: true, snap: false, radius: 14 }),
     CARD(n, { frame: 0, box: 'lane', cue: 'lane', pad: [0, 0], grow: 0.93, lift: 50, shift: [-0.4, -0.2] }),
     CARD(n, { frame: OPEN, box: 'track', cue: 'track', pad: [24, 16], lift: 50, shift: [-0.4, 0] }),
     CARD(n, { parent: 2, frame: 1, box: 'say', cue: 'kept', pad: [30, 24], lift: 44, grow: 1.04, shift: [0.3, 0] }),

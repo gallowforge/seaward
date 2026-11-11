@@ -173,10 +173,12 @@ function Cartouche({ report }: { report: Report }) {
   )
 }
 
-/** The margin of the chart: its caution, the tool's own list, the symbols, and what was not read. */
+/** The margin of the chart: its caution, the tool's own list, the symbols, and what was not asked, not read or not followed. */
 export function FinePrint({ report, vantage }: { report: Report; vantage: number }) {
   const f = report.frontend
   const unread = report.unread ?? []
+  const unfollowed = report.unfollowed ?? []
+  const partial = report.partial ?? []
   const notes = report.notes ?? []
   const symbols = symbolsFor(report, vantage)
   return (
@@ -184,12 +186,35 @@ export function FinePrint({ report, vantage }: { report: Report; vantage: number
       <h2 id="fine-h" class="sr">
         Fine print
       </h2>
+      {/* a scan that stopped at a ceiling comes first: every "nobody" on the chart is short of what was not asked */}
+      {partial.length > 0 && (
+        <div class="unread partial" role="note">
+          <h3>Not asked</h3>
+          <p>The scan stopped at a ceiling. What lies beyond it is not on the chart, so the chart rules nothing out.</p>
+          <ul>
+            {partial.map((u) => (
+              <li key={u}>{u}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {unread.length > 0 && (
         <div class="unread" role="note">
           <h3>Could not be read</h3>
-          <p>{unread.length === 1 ? 'This rule source exists on the machine and could not be read.' : 'These rule sources exist on the machine and could not be read.'} What they hold is not on the chart.</p>
+          <p>{unread.length === 1 ? 'This rule source exists on the machine and could not be read. What it holds is not on the chart.' : 'These rule sources exist on the machine and could not be read. What they hold is not on the chart.'}</p>
           <ul>
             {unread.map((u) => (
+              <li key={u}>{u}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {unfollowed.length > 0 && (
+        <div class="unfollowed" role="note">
+          <h3>Not followed</h3>
+          <p>{unfollowed.length === 1 ? 'This chain acts on packets outside the path Seaward follows. What it does to them is not on the chart.' : 'These chains act on packets outside the path Seaward follows. What they do to them is not on the chart.'}</p>
+          <ul>
+            {unfollowed.map((u) => (
               <li key={u}>{u}</li>
             ))}
           </ul>

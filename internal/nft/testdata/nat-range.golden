@@ -1,0 +1,44 @@
+table ip nat (nft)
+  chain prerouting: nat hook prerouting priority -100 policy accept
+    tcp dport 80 redirect to :8000-8010
+        match l4proto in {6}
+        match dport in {80}
+        redirect port 8000-8010
+    tcp dport 81 redirect to :8000-8010 random
+        match l4proto in {6}
+        match dport in {81}
+        redirect port 8000-8010 random
+    tcp dport 82 redirect to :8000-8010 fully-random
+        match l4proto in {6}
+        match dport in {82}
+        redirect port 8000-8010 random
+    tcp dport 83 dnat to 203.0.113.10:8200-8210 persistent
+        match l4proto in {6}
+        match dport in {83}
+        dnat 203.0.113.10 port 8200-8210
+    tcp dport 84 dnat to 203.0.113.10:8200-8210 random,persistent
+        match l4proto in {6}
+        match dport in {84}
+        dnat 203.0.113.10 port 8200-8210 random
+    tcp dport 85 dnat to 203.0.113.10-203.0.113.12
+        match l4proto in {6}
+        match dport in {85}
+        dnat 203.0.113.10-203.0.113.12
+    tcp dport 86 dnat to 203.0.113.10-203.0.113.12:8300-8310
+        match l4proto in {6}
+        match dport in {86}
+        dnat 203.0.113.10-203.0.113.12 port 8300-8310
+    udp dport 53 redirect to :5300-5310
+        match l4proto in {17}
+        match dport in {53}
+        redirect port 5300-5310
+table ip6 nat (nft)
+  chain prerouting: nat hook prerouting priority -100 policy accept
+    tcp dport 80 dnat to [2001:db8:1::10]:8000-8010
+        match l4proto in {6}
+        match dport in {80}
+        dnat 2001:db8:1::10 port 8000-8010
+    tcp dport 81 dnat to 2001:db8:1::10-2001:db8:1::12
+        match l4proto in {6}
+        match dport in {81}
+        dnat 2001:db8:1::10-2001:db8:1::12

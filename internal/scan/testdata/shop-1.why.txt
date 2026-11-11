@@ -3,9 +3,9 @@ Reachable from the internet. ufw does not allow it.
 
 gets through  anyone (192.0.2.7) -> 203.0.113.10
               anyone on the local network (203.0.113.11) -> 203.0.113.10
-  A rule in chain DOCKER of table nat sends it on to 172.18.0.2:5432,
-  container db. From there it is forwarded, not delivered to this
-  machine, so the INPUT chain, where ufw keeps its list, never sees it.
+  A rule in chain DOCKER of table nat sends it on to 172.18.0.2:5432, container db. From there it is
+  forwarded, not delivered to this machine, so the INPUT chain, where ufw keeps its list, never
+  sees it.
 
   1  prerouting  nat PREROUTING         to chain DOCKER
                  -A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER
@@ -22,8 +22,7 @@ gets through  anyone (192.0.2.7) -> 203.0.113.10
   7  forward     filter DOCKER          accept
                  -A DOCKER -d 172.18.0.2/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp
                    --dport 5432 -j ACCEPT
-> 8  deliver                            handed to container db, where postgres is listening on port
-                                        5432
+> 8  deliver     handed to container db, where postgres is listening on port 5432
 
 dropped       anyone (2001:db8:99::7) -> 2001:db8:1::10
               anyone on the local network (2001:db8:1::11) -> 2001:db8:1::10

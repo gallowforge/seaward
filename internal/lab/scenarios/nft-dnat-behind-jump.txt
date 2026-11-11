@@ -1,0 +1,53 @@
+name: nft-dnat-behind-jump
+about: The same in nftables: a jump, a goto and a verdict map each lead from the rule that names
+about: the port to a chain that rewrites the destination, one of them through a second chain. An
+about: entry of the map that says accept rewrites nothing, and neither does a port the map has no
+about: entry for. A port named again in the chain jumped to has to pass both rules.
+--- nft
+table ip nat {
+	chain onward {
+		tcp dport 8005 return
+		meta l4proto tcp redirect to :9000
+	}
+	chain further {
+		jump inner
+	}
+	chain inner {
+		meta l4proto tcp dnat to 203.0.113.10:9001
+	}
+	chain narrow {
+		tcp dport 8305 redirect to :9000
+		tcp dport 8400 redirect to :9000
+	}
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		tcp dport 8000-8010 jump onward
+		tcp dport 8100 goto further
+		tcp dport vmap { 8200 : jump onward, 8201 : goto further, 8202 : accept }
+		tcp dport 8300-8310 jump narrow
+	}
+}
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		tcp dport { 9000, 9001 } accept
+		tcp dport { 8005, 8202, 8304, 8400 } reject with tcp reset
+	}
+}
+--- listen
+host tcp 0.0.0.0 9000
+host tcp 0.0.0.0 9001
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 8000 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8010 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8005 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8011 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8100 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8200 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8201 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8202 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8203 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8305 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8304 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8400 want:refused
+eth0 203.0.113.77 203.0.113.10 tcp 8003 want:open

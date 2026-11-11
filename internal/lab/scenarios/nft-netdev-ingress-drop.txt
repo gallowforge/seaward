@@ -1,0 +1,33 @@
+name: nft-netdev-ingress-drop
+about: A netdev ingress chain that drops by default lets in only what its rules accept, for
+about: IPv4 and IPv6 alike, and what it lets in still has to pass the input chain. The lab's
+about: neighbour entries are permanent, so the address lookups the chain would also drop are
+about: not needed here.
+--- nft
+table netdev guard {
+	chain ingress {
+		type filter hook ingress device "eth0" priority -500; policy drop;
+		tcp dport { 22, 443 } accept
+		ip6 saddr 2001:db8:99::7 udp dport 53 accept
+	}
+}
+table inet filter {
+	chain input {
+		type filter hook input priority 0; policy accept;
+		tcp dport 443 drop
+	}
+}
+--- listen
+host tcp :: 22 dual
+host tcp :: 80 dual
+host tcp :: 443 dual
+host udp :: 53 dual
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 80 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 udp 53 want:open
+eth0 198.51.100.7 203.0.113.10 udp 53 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 80 want:open

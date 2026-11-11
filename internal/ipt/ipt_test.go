@@ -394,6 +394,10 @@ func TestUnknownMatches(t *testing.T) {
 
 func TestTargets(t *testing.T) {
 	jump := func(k rules.VerdictKind, c string) rules.Expr { return &rules.Verdict{Kind: k, Chain: c} }
+	random := func(x rules.Expr) rules.Expr {
+		x.(*rules.DNAT).Random = true
+		return x
+	}
 	dnat := func(a, ahi string, p, phi uint16) rules.Expr {
 		d := &rules.DNAT{Port: p, PortHi: phi}
 		if a != "" {
@@ -465,13 +469,15 @@ func TestTargets(t *testing.T) {
 		{"-j DNAT --to-destination 10.0.0.2:80", []rules.Expr{dnat("10.0.0.2", "", 80, 0)}},
 		{"-j DNAT --to-destination 10.0.0.2-10.0.0.9", []rules.Expr{dnat("10.0.0.2", "10.0.0.9", 0, 0)}},
 		{"-j DNAT --to-destination 10.0.0.2:8000-8010", []rules.Expr{dnat("10.0.0.2", "", 8000, 8010)}},
-		{"-j DNAT --to-destination 192.0.2.2-192.0.2.9:8000-8010 --random --persistent", []rules.Expr{dnat("192.0.2.2", "192.0.2.9", 8000, 8010)}},
+		{"-j DNAT --to-destination 192.0.2.2-192.0.2.9:8000-8010 --random --persistent", []rules.Expr{random(dnat("192.0.2.2", "192.0.2.9", 8000, 8010))}},
+		{"-j DNAT --to-destination 192.0.2.2:8000-8010 --persistent", []rules.Expr{dnat("192.0.2.2", "", 8000, 8010)}},
 		{"-j DNAT --to-destination :8080", []rules.Expr{dnat("", "", 8080, 0)}},
 		{"-j DNAT --to-destination 192.0.2.2:80-90/85", []rules.Expr{unkStmt("destination 192.0.2.2:80-90/85")}},
 		{"-j DNAT --to-destination bogus", []rules.Expr{unkStmt("bogus")}},
 		{"-j DNAT", []rules.Expr{unkStmt("0 destinations")}},
 		{"-j REDIRECT --to-ports 8080", []rules.Expr{&rules.Redirect{Port: 8080}}},
-		{"-j REDIRECT --to-ports 8000-8010 --random", []rules.Expr{&rules.Redirect{Port: 8000, PortHi: 8010}}},
+		{"-j REDIRECT --to-ports 8000-8010 --random", []rules.Expr{&rules.Redirect{Port: 8000, PortHi: 8010, Random: true}}},
+		{"-j REDIRECT --to-ports 8000-8010", []rules.Expr{&rules.Redirect{Port: 8000, PortHi: 8010}}},
 		{"-j REDIRECT", []rules.Expr{&rules.Redirect{}}},
 		{"-j NETMAP --to 10.0.0.0/8", []rules.Expr{unkStmt("NETMAP")}},
 	})

@@ -29,6 +29,8 @@ export interface Lane {
   breach: boolean
   /** The title says more than the two columns do, so the row shows it. */
   remark: boolean
+  /** Why an undecided port is undecided, where the fine print does not already say it for all. */
+  reason: string | undefined
 }
 
 const reached = (c: Cell): boolean => c.class === 'open' || c.class === 'forwarded'
@@ -45,12 +47,58 @@ export function cellsFrom(port: Port, vantage: Vantage | undefined): Cell[] {
   return port.cells.filter((c) => c.vantage === vantage.id)
 }
 
+/** As many characters as a note on a lane has room for before it runs out of the water it is set on. */
+const LANE_NOTE = 40
+
+/**
+ * What is set on a lane's own line: the view's note ("198.51.100.0/24 only"), or, where that
+ * names more senders than a lane has room for, how many of them get through. The names
+ * themselves stand in the row's "In fact" column, and each has a packet of its own in the passage.
+ * A note that begins "at least" is of a scan that did not ask every sender: the count then says
+ * the same, and no "only".
+ */
+export function laneNote(port: Port, view: View | undefined): string {
+  const note = view?.note ?? ''
+  if (!view || view.state !== 'some' || note.length <= LANE_NOTE) return note
+  const named = new Set(port.cells.filter((c) => c.vantage === view.vantage && reached(c)).map((c) => c.from))
+  if (named.size < 2) return note
+  return note.startsWith('at least ') ? `at least ${named.size} named senders` : `${named.size} named senders only`
+}
+
 function shoreOf(report: Report, cells: Cell[]): Shore {
   if (!report.frontend) return 'plain'
   const said = cells.filter((c) => c.allowed !== undefined)
   if (said.length === 0) return 'wall'
   if (said.every((c) => c.allowed)) return 'gate'
   return said.some((c) => c.allowed) ? 'part' : 'wall'
+}
+
+/** A reason as a sentence, the way the engine sets one: a capital first, a full stop last. */
+export function asSentence(s: string): string {
+  if (!s) return ''
+  const t = s.charAt(0).toUpperCase() + s.slice(1)
+  return t.endsWith('.') ? t : `${t}.`
+}
+
+/** What the fine print says once for the whole chart: the rule sources not read, the chains not followed, what was not asked. */
+const listed = (report: Report): string[] => [...(report.unread ?? []), ...(report.unfollowed ?? []), ...(report.partial ?? [])]
+
+/**
+ * True when everything an undecided port hangs on is in the fine print's lists, so the port
+ * itself can stay quiet. The same test as the command's own report (Text in internal/scan/text.go).
+ */
+export function explained(report: Report, port: Port): boolean {
+  const said = listed(report)
+  if (port.why && said.includes(port.why)) return true
+  let n = 0
+  for (const cell of port.cells) {
+    if (cell.class !== 'undecided') continue
+    for (const u of cell.unknowns ?? []) {
+      if (!said.includes(asSentence(u))) return false
+      n++
+    }
+  }
+  return n > 0
 }
 
 /** One port as a lane, drawn from the vantage at `index`. */
@@ -67,6 +115,8 @@ export function lane(report: Report, port: Port, index: number): Lane {
     breach: cells.some((c) => reached(c) && c.allowed === false),
     // the title is set under the reach only where it adds to it; an undecided port's does not
     remark: port.severity === 'high' || port.severity === 'medium' || port.severity === 'low',
+    // an undecided port gives its own reason on its row, unless the fine print gives it once for all
+    reason: port.finding === 'undecided' && !explained(report, port) ? port.why || undefined : undefined,
   }
   // bound to the machine itself: the lane never touches the water
   if (port.finding === 'local') return { ...base, sea: 'none', land: 'stub', berth: 'answers' }
@@ -145,6 +195,8 @@ export function passage(cell: Cell): HookGroup[] {
 /** The hook's name as the kernel has it, and what it means in plain words. */
 export function hookName(hook: string): { name: string; plain: string } {
   switch (hook) {
+    case 'ingress':
+      return { name: 'ingress', plain: 'as it arrives on the interface' }
     case 'prerouting':
       return { name: 'prerouting', plain: 'on arrival, before routing' }
     case 'route':
@@ -185,17 +237,113 @@ export function classWords(c: CellClass | string): string {
     case 'forwarded':
       return 'let through to another machine'
     case 'undecided':
-      return 'hangs on something the snapshot does not hold'
+      return 'hangs on something Seaward cannot see'
     default:
       return ''
   }
+}
+
+/** How a packet ended, in the words of the person who sent it, as the command says it. */
+export function outcomeWords(c: CellClass | string): string {
+  switch (c) {
+    case 'open':
+      return 'gets through'
+    case 'forwarded':
+      return 'passed on'
+    case 'closed':
+      return 'no listener'
+    case 'rejected':
+      return 'refused'
+    case 'filtered':
+      return 'dropped'
+    case 'undecided':
+      return 'not decided'
+    default:
+      return c
+  }
+}
+
+/**
+ * The end a packet is told by. A packet that reaches nothing, whether a chain that was not
+ * followed drops it or the followed rules have the last word, is told by how those rules end it.
+ */
+export function toldBy(cell: Cell): CellClass | string {
+  return cell.otherwise === 'closed' || cell.otherwise === 'rejected' ? cell.otherwise : cell.class
+}
+
+/** The words a packet is labelled with, the same ones the command sets at the head of it. */
+export const labelOf = (cell: Cell): string => outcomeWords(toldBy(cell))
+
+/**
+ * What "It ends" says of a packet: its label, and after it the engine's definition of that end.
+ * Where the definition opens with the label ("dropped without a word"), the label is not said
+ * twice. A packet told by how the followed rules end it has no definition: a chain that was not
+ * followed may still drop it, and the sentence above it says so.
+ */
+export function endWords(cell: Cell): { label: string; more: string } {
+  const label = labelOf(cell)
+  const means = toldBy(cell) === cell.class ? classWords(cell.class) : ''
+  if (!means) return { label, more: '' }
+  return { label, more: means.startsWith(`${label} `) ? means.slice(label.length) : `: ${means}` }
+}
+
+/** The sentence for a packet that can end in more than one way; nothing for any other. */
+export function eitherWay(cell: Cell): string {
+  const possible = cell.possible ?? []
+  if (possible.length < 2) return ''
+  const lead = toldBy(cell) === cell.class ? 'It could end either way: ' : 'It does not get through either way: '
+  return `${lead}${possible.map(outcomeWords).join(', or ')}.`
+}
+
+/** What a packet hangs on, without the entry its own reason already gives. */
+export const hangsOn = (cell: Cell): string[] => (cell.unknowns ?? []).filter((u) => asSentence(u) !== cell.why)
+
+/** True for a word that starts an option of a rule: "-j", "--dport". A bare "-" or "-1" is a value. */
+const isOption = (w: string | undefined): boolean => !!w && /^-(-|[A-Za-z])/.test(w)
+
+/**
+ * A rule cut where it may break when it is too long for one line, the way the command breaks it
+ * (wrapRule in internal/scan/text.go): before an option, which keeps what belongs to it, so
+ * "-j ACCEPT" stays whole and so does "! -i eth0". The pieces come in turn, a group and then the
+ * space after it, and put together again they are the rule, character for character. A rule
+ * written without options, as nft writes them, is one piece and breaks between its words.
+ */
+export function ruleGroups(rule: string): string[] {
+  const parts = rule.match(/\s+|\S+/g) ?? []
+  const words = parts.filter((p) => /\S/.test(p))
+  const out: string[] = []
+  let group = ''
+  let gap = ''
+  let n = 0
+  for (const part of parts) {
+    if (!/\S/.test(part)) {
+      gap = part
+      continue
+    }
+    const i = n++
+    let starts = false
+    if (part === '!') starts = isOption(words[i + 1])
+    else if (isOption(part)) starts = words[i - 1] !== '!'
+    if (i === 0) {
+      // whatever stands before the first word stays with it
+      group = gap + part
+    } else if (starts) {
+      out.push(group, gap)
+      group = part
+    } else {
+      group += gap + part
+    }
+    gap = ''
+  }
+  out.push(group + gap)
+  return out
 }
 
 /** How the packet's own lane ends, for the drawing of its passage. */
 export type End = 'berth' | 'empty' | 'stopped' | 'undecided'
 
 export function endOf(cell: Cell): End {
-  switch (cell.class) {
+  switch (toldBy(cell)) {
     case 'open':
     case 'forwarded':
       return 'berth'
@@ -253,18 +401,23 @@ function drawable(r: unknown): r is Report {
     const x = of[key]
     return isList(x) ? x : null
   }
+  // a list of sentences that may be left out: absent, or a list with nothing but text in it
+  const words = (of: Record<string, unknown>, key: string): boolean => of[key] === undefined || !!list(of, key)?.every((x) => typeof x === 'string')
   const vantages = list(r, 'vantages')
   const ports = list(r, 'ports')
   if (!isThing(r.counts) || !vantages || !ports) return false
   if (!vantages.every((v) => isThing(v) && typeof v.id === 'string')) return false
   if (r.frontend !== undefined && !(isThing(r.frontend) && typeof r.frontend.tool === 'string' && list(r.frontend, 'allows'))) return false
-  for (const key of ['unread', 'notes']) if (r[key] !== undefined && !list(r, key)) return false
+  if (!words(r, 'unread') || !words(r, 'unfollowed') || !words(r, 'partial') || !words(r, 'notes')) return false
   return ports.every((p) => {
     if (!isThing(p) || typeof p.proto !== 'string' || typeof p.port !== 'number') return false
     const views = list(p, 'views')
     const cells = list(p, 'cells')
     if (!views || !cells || !views.every(isThing)) return false
-    return cells.every((c) => isThing(c) && !!list(c, 'steps')?.every(isThing))
+    return cells.every((c) => {
+      if (!isThing(c) || !list(c, 'steps')?.every(isThing)) return false
+      return words(c, 'possible') && words(c, 'unknowns') && (c.otherwise === undefined || typeof c.otherwise === 'string')
+    })
   })
 }
 

@@ -84,15 +84,22 @@ func GenerateOne(seed uint64, i int) *Scenario {
 		for k := g.r.IntN(2) + 1; k > 0; k-- {
 			proto := g.pick([]string{"tcp", "udp"})
 			from := genPorts[g.r.IntN(len(genPorts))]
-			to := genPorts[g.r.IntN(len(genPorts))]
+			to := fmt.Sprint(genPorts[g.r.IntN(len(genPorts))])
+			if g.chance(0.3) {
+				// A range of ports. The kernel keeps the port the packet came for when it lies
+				// in the range, so a range drawn from the same few ports tests both ways.
+				i := g.r.IntN(len(genPorts) - 1)
+				j := i + 1 + g.r.IntN(len(genPorts)-1-i)
+				to = fmt.Sprintf("%d-%d", genPorts[i], genPorts[j])
+			}
 			cond := ""
 			if g.chance(0.3) {
 				cond = " -i " + g.pick(genIfaces)
 			}
 			if g.chance(0.5) {
-				fmt.Fprintf(&b, "-A PREROUTING%s -p %s -m %s --dport %d -j REDIRECT --to-ports %d\n", cond, proto, proto, from, to)
+				fmt.Fprintf(&b, "-A PREROUTING%s -p %s -m %s --dport %d -j REDIRECT --to-ports %s\n", cond, proto, proto, from, to)
 			} else {
-				fmt.Fprintf(&b, "-A PREROUTING%s -p %s -m %s --dport %d -j DNAT --to-destination %s:%d\n", cond, proto, proto, from, hostEth0v4, to)
+				fmt.Fprintf(&b, "-A PREROUTING%s -p %s -m %s --dport %d -j DNAT --to-destination %s:%s\n", cond, proto, proto, from, hostEth0v4, to)
 			}
 		}
 		b.WriteString("COMMIT\n")

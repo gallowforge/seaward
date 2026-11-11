@@ -70,7 +70,7 @@ func ParseIPSet(text string) (sets map[string]*rules.Set, dims map[string][]stri
 		}
 		toks, terr := tokenize(line)
 		if terr != nil {
-			notes = append(notes, fmt.Sprintf("ipset save line %d could not be read: %v", ln, terr))
+			notes = append(notes, fmt.Sprintf("line %d of the ipset save output could not be read: %v", ln, terr))
 			if f := strings.Fields(line); len(f) > 1 {
 				if ps := pend[f[1]]; ps != nil {
 					incomplete(ps, "a line of the set could not be read")
@@ -83,7 +83,7 @@ func ParseIPSet(text string) (sets map[string]*rules.Set, dims map[string][]stri
 			words[i] = t.s
 		}
 		if len(words) < 3 {
-			notes = append(notes, fmt.Sprintf("ipset save line %d is too short to mean anything", ln))
+			notes = append(notes, fmt.Sprintf("line %d of the ipset save output is too short to mean anything", ln))
 			continue
 		}
 		cmd, name := words[0], words[1]
@@ -155,7 +155,7 @@ func ParseIPSet(text string) (sets map[string]*rules.Set, dims map[string][]stri
 		case "add", "-A":
 			ps := pend[name]
 			if ps == nil {
-				notes = append(notes, fmt.Sprintf("ipset save line %d adds to the set %s, which was never created", ln, name))
+				notes = append(notes, fmt.Sprintf("line %d of the ipset save output adds to the set %s, which was never created", ln, name))
 				continue
 			}
 			nomatch, wildcard := false, false
@@ -190,7 +190,7 @@ func ParseIPSet(text string) (sets map[string]*rules.Set, dims map[string][]stri
 			}
 			ps.set.Elems = append(ps.set.Elems, elem)
 		default:
-			notes = append(notes, fmt.Sprintf("ipset save line %d starts with %q, which is not create or add", ln, cmd))
+			notes = append(notes, fmt.Sprintf("line %d of the ipset save output starts with %q, which is not create or add", ln, cmd))
 		}
 	}
 	// list:set is the union of its members when they all have the same parts.

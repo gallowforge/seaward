@@ -1,0 +1,43 @@
+name: nat-range-in-a-long-range
+about: One rule rewrites fifteen hundred ports to a range of a hundred. A packet that came for a
+about: port of that range keeps it; every other packet, from below the range or from above it, gets
+about: the range's first port. So the ports up to 8999, the ports 9001 to 9100 and the ports from
+about: 9101 on fare three ways, and a scan that asks a long range in part has to ask on each side
+about: of both ends of the target range.
+--- iptables
+*raw
+:PREROUTING ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A PREROUTING -p tcp -m tcp --dport 9400:9500 -j DROP
+COMMIT
+*nat
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+-A PREROUTING -p tcp -m tcp --dport 8000:9500 -j DNAT --to-destination 203.0.113.10:9000-9100
+COMMIT
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -p tcp -m multiport --dports 9000,9050 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 9051 -j REJECT --reject-with tcp-reset
+COMMIT
+--- listen
+host tcp 0.0.0.0 9000
+host tcp 0.0.0.0 9050
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 8000 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8999 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 9000 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 9001 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 9050 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 9051 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 9100 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 9101 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 9399 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 9400 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 9500 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 9501 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 9200 want:open

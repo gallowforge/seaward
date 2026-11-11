@@ -14,7 +14,7 @@
 // can lift one out of its screen by name. The scenes only crop, place and light what is captured here.
 const { chromium } = require('playwright');
 const { spawnSync } = require('child_process');
-const http = require('http'), path = require('path'), fs = require('fs'), { pathToFileURL } = require('url');
+const http = require('http'), path = require('path'), fs = require('fs'), os = require('os'), { pathToFileURL } = require('url');
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const BIN = path.resolve(process.argv[2] || path.join(ROOT, 'bin', 'seaward'));
@@ -26,6 +26,8 @@ const DESK = { width: 1120, height: 940, dpr: 2 };          // the demo itself i
 const PHONE = { width: 390, height: 1500, dpr: 3 };      // taller than a phone, so a scene can read further down the page
 const COLS = 64;                                         // the width of the terminal the sessions run in
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// where this copy of the repository lies, whose home that is under, and what the machine is called
+const OWN = [ROOT, os.homedir(), os.hostname()].filter((s) => s && s.length > 3);
 
 // ---------- the demo, served from its folder ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
@@ -106,9 +108,15 @@ function prepare() {
 function run(cmd, cwd = WORK) {
   const env = { ...process.env, PATH: path.join(WORK, 'bin') + path.delimiter + process.env.PATH, TERM: 'xterm-256color' };
   delete env.NO_COLOR;
+  // A session is what a person gets who types the command at a prompt. Under `make shots` this script is itself
+  // run by make, and a make started from here would know it: it would print "Entering directory" with the path
+  // of whoever built the pictures, into a picture.
+  for (const k of ['MAKEFLAGS', 'MFLAGS', 'MAKELEVEL', 'MAKEOVERRIDES', 'MAKE_TERMOUT', 'MAKE_TERMERR']) delete env[k];
   const r = spawnSync('script', ['-qec', `stty cols ${COLS} rows 60; ${cmd}`, '/dev/null'], { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1 << 26 });
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`"${cmd}" ended with ${r.status}:\n${r.stdout}${r.stderr}`);
+  // What is printed goes into a picture as it is, so it may name nothing of the machine the pictures are built on.
+  for (const own of OWN) if (r.stdout.includes(own)) throw new Error(`"${cmd}" printed "${own}", which belongs to this machine and would end up in a picture`);
   return r.stdout.replace(/\r/g, '').replace(/\n+$/, '');
 }
 const said = (note, cmd, cwd) => ({ note, cmd, out: run(cmd, cwd) });
@@ -140,9 +148,9 @@ function sessions() {
 // What is lifted out of each session.
 const TERM_MARKS = {
   scan: { verdict: { css: '.t-blk', text: 'can be reached from outside' }, exposed: { css: '.t-o', text: 'tcp 5432', to: 'ufw does not allow it' },
-    block: { css: '.t-blk', text: 'tcp 5432' } },
+    block: { css: '.t-blk', text: 'tcp 5432' }, rewritten: { css: '.t-o', text: 'tcp 5432', to: '--to-destination' } },
   why: { port: { css: '.t-blk', index: 0 }, through: { css: '.t-blk', text: 'gets through' },
-    rewrite: { css: '.t-o', text: 'destination becomes', to: '--to-destination', more: 1 },
+    rewrite: { css: '.t-o', text: 'destination becomes', to: '--to-destination 172.18.0.2:5432' },   // the step and the whole of its rule, and no line of the next step
     accept: { css: '.t-o', text: 'filter DOCKER          accept', to: '-j ACCEPT' },
     steps: { css: '.t-o', text: 'nat PREROUTING', to: 'listening on port 5432' } },
   fixed: { verdict: { css: '.t-blk', text: 'can be reached from outside' } },
@@ -265,10 +273,14 @@ async function terms(browser, boxes) {
 // animations; they are held and stepped by hand, REPLAY.step ms a frame, so every build photographs the same
 // moments. The chart is photographed from its header row down, in this order: 0 shop-1 at rest; 1..turn the
 // passage being drawn; turn+1 the passage at rest; turn+2 the fixed server. At the phone's width the head of the
-// page (the verdict and the sample switcher) is photographed too: 0 shop-1, 1 the fixed server.
+// page is photographed too (0 shop-1, 1 the fixed server), twice: as far as the sample switcher (m-head) and as
+// far as the verdict (m-say). What follows on the page is painted over with the page's own ground for that
+// photograph. The chart comes next and has panes of its own, and where it begins depends on how long the verdict
+// is: a pane that showed a fixed stretch of the page would end in the middle of the chart's first box for one
+// sample and not for the other.
 const VISITS = [
   { name: 'chart', phone: false, width: 1024, tall: 2400, deep: 760 },
-  { name: 'm-chart', phone: true, width: PHONE.width, tall: 3800, deep: 1000, head: ['m-head', 720] },
+  { name: 'm-chart', phone: true, width: PHONE.width, tall: 3800, deep: 1000, head: { tall: 720, upTo: [['m-head', '.picker', 26], ['m-say', '.verdict-main > [aria-live]', 22]] } },
 ];
 const LANE = 'tcp-5432', FIXED = 'shop-1, fixed', FIRST = 'shop-1';
 async function visit(browser, d, scheme, v, boxes, { turn: N, step: STEP }) {
@@ -301,13 +313,33 @@ async function visit(browser, d, scheme, v, boxes, { turn: N, step: STEP }) {
     if (marks) boxes[file] = await marksOf(page, marks, k, clip);
     await page.screenshot({ path: path.join(SHOTS, file + '.png'), clip });
   };
-  // the head of the page
+  // the head of the page, as far as the element `last` and `gap` px of ground below it
   const head = async () => {
     if (!v.head) return;
     await still();
-    const clip = { x: 0, y: 0, width: v.width, height: v.head[1] }, file = `${v.head[0]}-${String(heads++).padStart(2, '0')}-${scheme}`;
-    boxes[file] = await marksOf(page, { say: { css: '#verdict-h' }, why: { css: '.verdict-main .detail' }, picker: { css: '.picker' } }, k, clip);
-    await page.screenshot({ path: path.join(SHOTS, file + '.png'), clip });
+    const clip = { x: 0, y: 0, width: v.width, height: v.head.tall };
+    for (const [name, last, gap] of v.head.upTo) {
+      const file = `${name}-${String(heads).padStart(2, '0')}-${scheme}`;
+      const end = await page.evaluate(([last, gap]) => {
+        const el = document.querySelector(last);
+        if (!el) return null;
+        let e = el, ground = 'rgba(0, 0, 0, 0)';
+        while (e && /rgba\(.*, 0\)$|^transparent$/.test(ground)) { ground = getComputedStyle(e).backgroundColor; e = e.parentElement; }
+        const top = Math.round(el.getBoundingClientRect().bottom + scrollY + gap);
+        const cover = document.createElement('div');
+        cover.id = 'capture-cover';
+        cover.style.cssText = `position:absolute;left:0;top:${top}px;width:100%;height:${Math.max(0, document.documentElement.scrollHeight - top)}px;background:${ground};z-index:2147483647`;
+        document.body.appendChild(cover);
+        return top;
+      }, [last, gap]);
+      if (end === null) throw new Error(`the head of the page has no ${last} to end at`);
+      if (end > v.head.tall) throw new Error(`${last} ends ${end} px down the page: the photograph of the head is not tall enough`);
+      boxes[file] = await marksOf(page, { say: { css: '#verdict-h' }, why: { css: '.verdict-main .detail' }, picker: { css: '.picker' } }, k, clip);
+      boxes[file]._end = Math.round(end * k);
+      await page.screenshot({ path: path.join(SHOTS, file + '.png'), clip });
+      await page.evaluate(() => document.getElementById('capture-cover').remove());
+    }
+    heads++;
   };
   const lane = { css: `#${LANE} > .lane` };
   const says = [await said()];
@@ -344,7 +376,7 @@ async function visit(browser, d, scheme, v, boxes, { turn: N, step: STEP }) {
   await ctx.close();
 }
 async function demo(browser, boxes, replay) {
-  for (const f of fs.readdirSync(SHOTS)) if (/^(m-)?(chart|head)-\d+-/.test(f)) fs.unlinkSync(path.join(SHOTS, f));
+  for (const f of fs.readdirSync(SHOTS)) if (/^(m-)?(chart|head|say)-\d+-/.test(f)) fs.unlinkSync(path.join(SHOTS, f));
   const d = await serve();
   try {
     for (const scheme of ['dark', 'light']) for (const v of VISITS) await visit(browser, d, scheme, v, boxes, replay);

@@ -33,8 +33,12 @@ type Interface struct {
 	Loopback bool
 	// Kind is "" for an ordinary interface, or the link kind the kernel reports: "bridge", "veth",
 	// "wireguard", "tun", "dummy", "vlan", "bond" ...
-	Kind  string
-	Addrs []netip.Prefix // each address with its prefix length
+	Kind string
+	// Master is the bridge or bond this interface is a port of, and Lower the interface a VLAN or
+	// MACVLAN sits on. A packet that arrives on a bridge came in through one of its ports, and one
+	// on a VLAN through the interface under it.
+	Master, Lower string
+	Addrs         []netip.Prefix // each address with its prefix length
 }
 
 // Route is one route of the main table.

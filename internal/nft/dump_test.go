@@ -25,10 +25,12 @@ import (
 //	mixed             iptables rules, then nft rules added to the same "ip filter" table: an
 //	                  anonymous set, a named set, a verdict map. mixed.save shows how iptables-save
 //	                  misprints them.
+//	nat-range         redirect and dnat to a range of ports or of addresses, with and without the
+//	                  flags that make the kernel pick at random
 //	firewalld-handwritten
 //	                  NOT from a real tool: an "inet firewalld" table written by hand in the shape
 //	                  firewalld gives its ruleset, since firewalld is not installed here.
-var fixtures = []string{"native", "native-more", "iptables", "iptables-more", "mixed", "firewalld-handwritten"}
+var fixtures = []string{"native", "native-more", "iptables", "iptables-more", "mixed", "nat-range", "firewalld-handwritten"}
 
 func readFile(t testing.TB, name string) []byte {
 	t.Helper()
@@ -198,6 +200,9 @@ func dumpExpr(x rules.Expr) string {
 				s += fmt.Sprintf("-%d", x.PortHi)
 			}
 		}
+		if x.Random {
+			s += " random"
+		}
 		return s
 	case *rules.Redirect:
 		s := "redirect"
@@ -206,6 +211,9 @@ func dumpExpr(x rules.Expr) string {
 			if x.PortHi != 0 {
 				s += fmt.Sprintf("-%d", x.PortHi)
 			}
+		}
+		if x.Random {
+			s += " random"
 		}
 		return s
 	case *rules.SetMark:
@@ -239,6 +247,9 @@ func dump(rs *rules.Ruleset) string {
 			fmt.Fprintf(&b, "  chain %s", c.Name)
 			if c.Hook != "" {
 				fmt.Fprintf(&b, ": %s hook %s priority %d policy %s", c.Type, c.Hook, c.Priority, verdictNames[c.Policy])
+				if len(c.Devs) > 0 {
+					fmt.Fprintf(&b, " on %s", strings.Join(c.Devs, ","))
+				}
 				if !c.Base {
 					b.WriteString(" (not running)")
 				}
@@ -270,6 +281,28 @@ func dump(rs *rules.Ruleset) string {
 	}
 	for _, n := range rs.Notes {
 		fmt.Fprintf(&b, "note: %s\n", n)
+	}
+	for _, u := range rs.Unfollowed {
+		b.WriteString("unfollowed:")
+		if len(u.In) > 0 {
+			fmt.Fprintf(&b, " in %s", strings.Join(u.In, ","))
+		}
+		if len(u.Out) > 0 {
+			fmt.Fprintf(&b, " out %s", strings.Join(u.Out, ","))
+		}
+		if u.BridgeIn {
+			b.WriteString(" bridge-in")
+		}
+		if u.BridgeOut {
+			b.WriteString(" bridge-out")
+		}
+		if u.OnlyStops {
+			b.WriteString(" only-stops")
+		}
+		if u.Walked {
+			b.WriteString(" walked")
+		}
+		fmt.Fprintf(&b, ": %s\n", u.Why)
 	}
 	return b.String()
 }

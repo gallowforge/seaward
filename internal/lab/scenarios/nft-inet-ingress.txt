@@ -1,0 +1,39 @@
+name: nft-inet-ingress
+about: An inet table may hook a chain in at ingress too. It runs before connection tracking, so
+about: every packet reads as "ct state invalid" there and none as new. A policy of drop holds for
+about: the IP packets the chain sees, and a reject is answered from there.
+--- nft
+table inet early {
+	chain ingress {
+		type filter hook ingress device "eth0" priority -500; policy drop;
+		ip saddr 198.51.100.0/28 tcp dport 22 drop
+		ct state new tcp dport 7070 drop
+		ct state invalid tcp dport 9090 drop
+		tcp dport 8080 reject with tcp reset
+		tcp dport { 22, 7070, 8080, 9090 } accept
+		ip6 nexthdr tcp accept
+	}
+}
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		tcp dport 443 drop
+	}
+}
+--- listen
+host tcp :: 22 dual
+host tcp :: 80 dual
+host tcp :: 443 dual
+host tcp :: 7070 dual
+host tcp :: 8080 dual
+host tcp :: 9090 dual
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.200 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.200 203.0.113.10 tcp 7070 want:open
+eth0 198.51.100.200 203.0.113.10 tcp 9090 want:silent
+eth0 198.51.100.200 203.0.113.10 tcp 8080 want:refused
+eth0 198.51.100.200 203.0.113.10 tcp 80 want:silent
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 80 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 443 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 80 want:open

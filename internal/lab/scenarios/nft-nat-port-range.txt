@@ -1,0 +1,33 @@
+name: nft-nat-port-range
+about: A redirect or dnat to a range of ports. The kernel keeps the port the packet came for when
+about: it already lies in the range, and takes the first port of the range when it does not.
+--- nft
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		tcp dport 80 redirect to :8000-8010
+		tcp dport 81 redirect to :9000-9010
+		tcp dport 8103 redirect to :8100-8110
+		tcp dport 8405 redirect to :8400-8410
+		tcp dport 82 dnat to 203.0.113.10:8200-8210
+		tcp dport 8303 dnat to 203.0.113.10:8300-8310
+		udp dport 53 redirect to :5300-5310
+	}
+}
+--- listen
+host tcp 0.0.0.0 8000
+host tcp 0.0.0.0 9005
+host tcp 0.0.0.0 8100
+host tcp 0.0.0.0 8405
+host tcp 0.0.0.0 8200
+host tcp 0.0.0.0 8300
+host udp 0.0.0.0 5300
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 81 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8103 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 8405 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 82 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8303 want:refused
+eth0 198.51.100.7 203.0.113.10 udp 53 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 80 want:open

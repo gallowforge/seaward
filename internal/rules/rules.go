@@ -17,6 +17,11 @@ type Ruleset struct {
 	// listing that would not parse). Rules nobody read may stop or redirect anything, so the engine
 	// decides nothing for a family while one of its sources is unread.
 	Unread []Unread
+	// Unfollowed lists the base chains the kernel runs at a point of the packet path the engine
+	// does not walk: an egress hook, a bridge, an ingress hook underneath the interface a packet
+	// arrives on. Each has rules or drops by policy, so the engine decides nothing for a packet
+	// that passes one.
+	Unfollowed []Unfollowed
 }
 
 // Unread is one rule source that could not be read.
@@ -25,20 +30,42 @@ type Unread struct {
 	Why    string // one plain sentence
 }
 
+// Unfollowed is one base chain outside the path the engine walks, and the packets it sees.
+type Unfollowed struct {
+	Why string // one plain sentence that names the chain
+	// In and Out name the interfaces whose arriving and leaving packets the chain sees. A name
+	// that ends in "*" stands for every interface whose name starts that way.
+	In, Out []string
+	// BridgeIn and BridgeOut are for a chain of a bridge table: it sees what arrives or leaves
+	// through any bridge of the machine.
+	BridgeIn, BridgeOut bool
+	// OnlyStops is true when the chain can do no more than drop a packet or let it pass: none of
+	// its rules changes a packet, sends it elsewhere or answers it. A packet the walked rules drop
+	// is then dropped whatever the chain does.
+	OnlyStops bool
+	// Walked is true for an ingress chain the engine does walk, as a base chain of its table, for
+	// a packet that arrives on one of In itself. The entry then stands only for a packet that
+	// passes one of In underneath the interface it arrives on: a port of its bridge or bond, the
+	// interface its VLAN sits on.
+	Walked bool
+}
+
 // SetKey is the key of a named set in Ruleset.Sets.
 func SetKey(family, table, name string) string { return family + "\x00" + table + "\x00" + name }
 
 // Table is one table of one family.
 type Table struct {
-	Family string // "ip", "ip6" or "inet"
+	Family string // "ip", "ip6", "inet" or "netdev"
 	Name   string
 	Origin string // "iptables" (nf_tables backend), "iptables-legacy" or "nft"
 	Chains map[string]*Chain
 	Order  []string // chain names in source order
 }
 
-// Hooks, as Chain.Hook spells them.
+// Hooks, as Chain.Hook spells them. Ingress comes first: it runs for each packet as it arrives
+// on an interface, before connection tracking and before prerouting.
 const (
+	HookIngress     = "ingress"
 	HookPrerouting  = "prerouting"
 	HookInput       = "input"
 	HookForward     = "forward"
@@ -55,7 +82,11 @@ type Chain struct {
 	Type     string      // base chains: "filter", "nat" or "route"
 	Priority int         // base chains: lower runs first
 	Policy   VerdictKind // base chains: Accept or Drop
-	Rules    []*Rule
+	// Devs names the interfaces an ingress chain is attached to: it sees a packet that arrives on
+	// one of them and no other. A name that ends in "*" stands for every interface whose name
+	// starts that way.
+	Devs  []string
+	Rules []*Rule
 }
 
 // Rule is one rule. Exprs run left to right; the first match that fails ends the rule.
@@ -205,20 +236,27 @@ type VmapEntry struct {
 	Verdict Verdict
 }
 
-// DNAT rewrites the destination. A zero Addr keeps the address; a zero Port keeps the port. With a
-// range the engine uses the first address or port. In a nat chain it ends the chain with accept.
+// DNAT rewrites the destination. A zero Addr keeps the address; a zero Port keeps the port. In a
+// nat chain it ends the chain with accept.
+//
+// With a range of ports the kernel keeps the port the packet came for when it already lies in the
+// range and takes the first port of the range when it does not, unless the rule asks for a random
+// one. With a range of addresses it picks one by who sent the packet, which the engine does not
+// work out: that packet is undecided.
 type DNAT struct {
 	Addr   netip.Addr
 	AddrHi netip.Addr // zero unless a range
 	Port   uint16
 	PortHi uint16 // zero unless a range
+	Random bool   // the port is picked at random out of the range
 }
 
 // Redirect rewrites the destination to this machine: the first address of the input interface.
-// A zero Port keeps the port.
+// A zero Port keeps the port. A range of ports is read as for DNAT.
 type Redirect struct {
 	Port   uint16
 	PortHi uint16
+	Random bool
 }
 
 // SetMark changes the packet mark or the connection mark: new = (old AND And) XOR Xor.

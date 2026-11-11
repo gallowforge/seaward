@@ -56,7 +56,7 @@ func TestBuildTestdata(t *testing.T) {
 			{Name: "eth0", Up: true, Addrs: []netip.Prefix{p("192.0.2.10/24"), p("2001:db8:10::10/64"), p("fe80::5054:ff:fe12:3456/64")}},
 			{Name: "docker0", Up: true, Kind: "bridge", Addrs: []netip.Prefix{p("172.17.0.1/16")}},
 			{Name: "br-7d1e0c2a9b44", Up: true, Kind: "bridge", Addrs: []netip.Prefix{p("172.18.0.1/16")}},
-			{Name: "veth1a2b3c4", Up: true, Kind: "veth"},
+			{Name: "veth1a2b3c4", Up: true, Kind: "veth", Master: "br-7d1e0c2a9b44"},
 		},
 		Routes: []host.Route{
 			{Dst: p("0.0.0.0/0"), Dev: "eth0", Gateway: a("192.0.2.1"), Type: "unicast"},

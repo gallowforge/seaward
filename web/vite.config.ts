@@ -88,5 +88,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // one test reads a stylesheet as text (render.test.tsx); left at its default, vitest hands
+    // every stylesheet over empty
+    css: true,
   },
 })

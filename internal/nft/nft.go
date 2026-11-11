@@ -1,10 +1,13 @@
 // Package nft reads "nft -j list ruleset" output into the rules model.
 //
-// The listing is a flat list of tables, chains, sets, maps and rules. ParseJSON keeps the ip, ip6
-// and inet tables, since those are the ones an IP packet walks, and says in a note what it left
-// out. Inside a rule every expression becomes model expressions in the order written; whatever
-// the model has no word for becomes an Unknown (a condition) or an UnknownStmt (a statement) with
-// one sentence saying why, never nothing.
+// The listing is a flat list of tables, chains, sets, maps and rules. ParseJSON keeps the ip, ip6,
+// inet and netdev tables, since those hold the chains an IP packet walks: the five hooks of the IP
+// path and, before them, the ingress hook of the interface the packet arrives on. A chain that
+// hooks in anywhere else (an egress hook, a bridge table) is not read: when it can stop or change
+// a packet it goes into Unfollowed, so that nothing is decided for the packets that pass it, and
+// whatever else is left out is said in a note. Inside a rule every expression becomes model
+// expressions in the order written; whatever the model has no word for becomes an Unknown (a
+// condition) or an UnknownStmt (a statement) with one sentence saying why, never nothing.
 //
 // A table that iptables made on the nf_tables backend is listed twice on a machine: once by
 // iptables-save and once here. Neither listing is complete. The nft listing shows most of what
@@ -19,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/gallowforge/seaward/internal/rules"
@@ -53,18 +57,45 @@ type parser struct {
 	rs     *rules.Ruleset
 	tables []*table
 	byName map[string]*table
+	sides  []*side
+	sideBy map[string]*side
+	aside  []*aside // in the order of the listing
 	noted  map[string]bool
 }
 
-// table is one ip, ip6 or inet table of the document.
+// table is one ip, ip6, inet or netdev table of the document.
 type table struct {
 	family, name string
 	dormant      bool
 	chains       map[string]*chain
 	order        []string
-	left         map[string]bool // chains left out: an ingress or egress hook
+	left         map[string]*aside // base chains left out: an egress hook, an ingress hook not walked
+	walked       map[string]*aside // ingress chains that are walked, by the same names as in chains
 	sets         map[string]*setInfo
 	limits       map[string]bool // named limits: true when it matches over the rate
+}
+
+// side is a bridge table. Seaward walks none of its chains, so it keeps only what it takes to say
+// which packets pass one.
+type side struct {
+	family, name string
+	dormant      bool
+	chains       map[string]*aside // its base chains
+	acts         bool              // a rule of it does more than drop a packet or let it pass
+}
+
+// aside is a base chain the kernel runs at a point of the packet path seaward does not walk, or
+// does not always walk: an ingress or egress hook, or any hook of a bridge table. Its rules are
+// counted here; those of a walked ingress chain are read as well, into the chain of its table.
+type aside struct {
+	family, table, name, hook string
+	devs                      []string // the interfaces it is attached to
+	drop                      bool     // its policy drops
+	rules                     int
+	acts                      bool  // a rule of it does more than drop a packet or let it pass
+	side                      *side // its table, when that is a bridge table
+	dormant                   bool  // its table is switched off
+	walked                    bool  // an ingress chain that is walked where a packet arrives
 }
 
 // chain is a chain with its rules as the document wrote them.
@@ -139,6 +170,7 @@ func read(data []byte) (*parser, error) {
 	p := &parser{
 		rs:     &rules.Ruleset{Sets: map[string]*rules.Set{}},
 		byName: map[string]*table{},
+		sideBy: map[string]*side{},
 		noted:  map[string]bool{},
 	}
 	// The listing is read by kind, so that a rule may come before its chain or its set.
@@ -176,12 +208,12 @@ func read(data []byte) (*parser, error) {
 		}
 	}
 	for _, o := range tables {
-		if t := p.table(o.text("family"), o.text("name")); t != nil {
-			for _, f := range o.get("flags").strs() {
-				if f == "dormant" {
-					t.dormant = true
-				}
-			}
+		family, name := o.text("family"), o.text("name")
+		dormant := slices.Contains(o.get("flags").strs(), "dormant")
+		if s := p.side(family, name); s != nil {
+			s.dormant = dormant
+		} else if t := p.table(family, name); t != nil {
+			t.dormant = dormant
 		}
 	}
 	for _, o := range chains {
@@ -205,13 +237,28 @@ func read(data []byte) (*parser, error) {
 		}
 	}
 	for _, o := range ruleList {
-		t := p.table(o.text("family"), o.text("table"))
+		family, name := o.text("family"), o.text("chain")
+		if s := p.side(family, o.text("table")); s != nil {
+			// A base chain may hand the packet to any other chain of its table, so what one rule
+			// of the table does, any of its base chains may do.
+			s.acts = s.acts || !onlyStops(o, true)
+			if a := s.chains[name]; a != nil {
+				a.rules++
+			}
+			continue
+		}
+		t := p.table(family, o.text("table"))
 		if t == nil {
 			continue
 		}
-		name := o.text("chain")
-		if t.left[name] {
+		if a := t.left[name]; a != nil {
+			a.rules++
+			a.acts = a.acts || !onlyStops(o, false)
 			continue
+		}
+		if a := t.walked[name]; a != nil {
+			a.rules++
+			a.acts = a.acts || !onlyStops(o, false)
 		}
 		c := t.chains[name]
 		if c == nil {
@@ -219,7 +266,123 @@ func read(data []byte) (*parser, error) {
 		}
 		c.raw = append(c.raw, &node{v: o})
 	}
+	p.setAside()
 	return p, nil
+}
+
+// onlyStops reports whether a rule can do no more than drop a packet or let it pass: it looks at
+// the packet, counts, logs and gives a verdict. Anything else (a reject, a changed mark or header,
+// a packet sent out through another interface, a statement this does not know) says no. local
+// says whether the rule's chain keeps to its own table: a jump then stays among rules that are
+// all looked at, and a set it fills is one no walked rule can read.
+func onlyStops(rule *object, local bool) bool {
+	for _, x := range rule.peek("expr").arr() {
+		o := x.obj()
+		if o == nil {
+			return false
+		}
+		for _, k := range o.keys() {
+			switch k {
+			case "match", "counter", "log", "limit", "quota", "accept", "drop", "return", "continue":
+			case "jump", "goto", "vmap", "set":
+				if !local {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// setAside settles every chain outside the walked path. One that can stop or change a packet
+// seaward decides about goes into Unfollowed, so that nothing is decided for the packets that
+// pass it. One that cannot is a note.
+func (p *parser) setAside() {
+	for _, s := range p.sides {
+		if s.dormant {
+			p.note(fmt.Sprintf("the table %s %s is switched off (flags dormant): the kernel runs none of its chains, so seaward does not either", s.family, clip(s.name)))
+		}
+	}
+	for _, a := range p.aside {
+		if a.dormant {
+			continue // the note about its table covers it
+		}
+		chain := fmt.Sprintf("the chain %s of table %s %s", clip(a.name), a.family, clip(a.table))
+		u := rules.Unfollowed{OnlyStops: !a.acts && (a.side == nil || !a.side.acts)}
+		if a.walked {
+			// Walked for a packet that arrives on the interface itself. A packet that comes up
+			// through a bridge, a bond or a VLAN passes the chain one layer down, where the
+			// frame is not yet the packet seaward walks.
+			if a.rules > 0 || a.drop {
+				u.In, u.Walked = a.devs, true
+				u.Why = chain + " acts on packets as they pass " + devList(a.devs) + ", underneath the bridge, bond or VLAN interface they arrive on, where seaward does not follow them"
+				p.rs.Unfollowed = append(p.rs.Unfollowed, u)
+			}
+			if a.family == "netdev" && a.drop {
+				// Such a chain sees every frame, not only IP packets. Seaward walks the packet
+				// and takes the lookups that come before it for granted, here as everywhere.
+				p.note(chain + " drops by default every frame that arrives on " + devList(a.devs) + ": seaward follows the IP packet through it and takes it that the address lookups before it (ARP) get through")
+			}
+			continue
+		}
+		idle := "" // why it touches nothing seaward decides
+		switch {
+		case a.rules == 0 && !a.drop:
+			idle = "it has no rules and lets everything pass"
+		case a.family == "bridge":
+			switch a.hook {
+			case rules.HookPrerouting, rules.HookInput:
+				u.BridgeIn = true
+				u.Why = chain + " acts on frames as they arrive through a bridge, before the packet path seaward follows"
+			case rules.HookOutput, rules.HookPostrouting:
+				u.BridgeOut = true
+				u.Why = chain + " acts on frames as they leave through a bridge, after the packet path seaward follows"
+			case rules.HookForward:
+				idle = "it filters frames switched between the ports of a bridge, which never enter the packet path seaward follows"
+			default:
+				u.BridgeIn, u.BridgeOut = true, true
+			}
+		case (a.hook == "ingress" || a.hook == "egress") && len(a.devs) == 0:
+			idle = "it is attached to no interface, so it sees no packets"
+		case a.hook == "egress":
+			u.Out = a.devs
+			u.Why = chain + " acts on packets as they leave through " + devList(a.devs) + ", after the packet path seaward follows"
+		default:
+			// A hook that did not exist when this was written, or one its family does not have.
+			// Where it sits is not known, so every packet may pass it; a netdev chain still only
+			// sees its own interfaces.
+			u.In = []string{"*"}
+			if a.family == "netdev" && len(a.devs) > 0 {
+				u.In, u.Out = a.devs, a.devs
+			}
+		}
+		switch {
+		case idle != "":
+			p.note(chain + " was left out: " + idle)
+			continue
+		case u.Why == "":
+			u.Why = chain + " hooks in at " + clip(a.hook) + ", a point of the packet path seaward does not know"
+		}
+		p.rs.Unfollowed = append(p.rs.Unfollowed, u)
+	}
+}
+
+// devList writes interface names as a sentence would: "eth0", "eth0 and eth1", "eth0, eth1 and eth2".
+func devList(names []string) string {
+	out := ""
+	for i, n := range names {
+		switch {
+		case i == 0:
+		case i == len(names)-1:
+			out += " and "
+		default:
+			out += ", "
+		}
+		out += clip(n)
+	}
+	return out
 }
 
 // note adds a note once.
@@ -240,19 +403,20 @@ func clip(s string) string {
 }
 
 // table finds a table of the document, making it when a chain or rule names one the document did
-// not declare. Tables of the families seaward does not follow give nil and one note each.
+// not declare. A bridge table gives nil: its chains are kept apart (see side). So does a table of
+// any other family, with one note each.
 func (p *parser) table(family, name string) *table {
 	switch family {
-	case "ip", "ip6", "inet":
+	case "ip", "ip6", "inet", "netdev":
+	case "bridge":
+		p.side(family, name)
+		return nil
 	default:
 		what := "a family seaward does not know"
-		switch family {
-		case "arp":
+		if family == "arp" {
+			// ARP decides which machine answers for an address on the local network, not what
+			// happens to a packet that arrives.
 			what = "ARP packets"
-		case "bridge":
-			what = "frames crossing a bridge"
-		case "netdev":
-			what = "packets on one interface, before the kernel's normal packet path"
 		}
 		p.note(fmt.Sprintf("the %s table %s was left out: it filters %s, which seaward does not follow", clip(family), clip(name), what))
 		return nil
@@ -265,13 +429,29 @@ func (p *parser) table(family, name string) *table {
 		family: family,
 		name:   name,
 		chains: map[string]*chain{},
-		left:   map[string]bool{},
+		left:   map[string]*aside{},
+		walked: map[string]*aside{},
 		sets:   map[string]*setInfo{},
 		limits: map[string]bool{},
 	}
 	p.byName[key] = t
 	p.tables = append(p.tables, t)
 	return t
+}
+
+// side finds or makes a bridge table; nil for any other family.
+func (p *parser) side(family, name string) *side {
+	if family != "bridge" {
+		return nil
+	}
+	key := family + "\x00" + name
+	if s := p.sideBy[key]; s != nil {
+		return s
+	}
+	s := &side{family: family, name: name, chains: map[string]*aside{}}
+	p.sideBy[key] = s
+	p.sides = append(p.sides, s)
+	return s
 }
 
 // chain finds or makes a chain of the table.
@@ -286,17 +466,49 @@ func (t *table) chain(name string) *chain {
 }
 
 func (p *parser) addChain(o *object) {
-	t := p.table(o.text("family"), o.text("table"))
+	family, name, hook := o.text("family"), o.text("name"), o.text("hook")
+	devs, drop := o.get("dev").strs(), o.text("policy") == "drop"
+	out := func(table string, dormant bool) *aside {
+		a := &aside{
+			family: family, table: table, name: name, hook: hook,
+			devs: devs, drop: drop, dormant: dormant,
+		}
+		p.aside = append(p.aside, a)
+		return a
+	}
+	if s := p.side(family, o.text("table")); s != nil {
+		// Only a base chain is ever called by the kernel; the others run when one jumps to them.
+		if hook != "" {
+			a := out(s.name, s.dormant)
+			a.side = s
+			s.chains[name] = a
+		}
+		return
+	}
+	t := p.table(family, o.text("table"))
 	if t == nil {
 		return
 	}
-	name := o.text("name")
-	hook := o.text("hook")
+	ingress := false
 	switch hook {
-	case "", rules.HookPrerouting, rules.HookInput, rules.HookForward, rules.HookOutput, rules.HookPostrouting:
+	case "":
+	case rules.HookPrerouting, rules.HookInput, rules.HookForward, rules.HookOutput, rules.HookPostrouting:
+		if family == "netdev" {
+			// A netdev table has no such hook.
+			t.left[name] = out(t.name, t.dormant)
+			return
+		}
+	case rules.HookIngress:
+		// An ingress chain runs for each packet as it arrives on its interfaces, before every
+		// other chain, and is walked like any base chain.
+		if len(devs) == 0 {
+			t.left[name] = out(t.name, t.dormant)
+			return
+		}
+		ingress = true
 	default:
-		t.left[name] = true
-		p.note(fmt.Sprintf("the chain %s of table %s %s was left out: it hooks in at %s, outside the packet path seaward follows", clip(name), t.family, clip(t.name), clip(hook)))
+		// An egress hook: the chain sees packets after the path seaward walks.
+		t.left[name] = out(t.name, t.dormant)
 		return
 	}
 	c := t.chain(name).c
@@ -304,6 +516,12 @@ func (p *parser) addChain(o *object) {
 		return
 	}
 	c.Hook = hook
+	if ingress {
+		a := out(t.name, t.dormant)
+		a.walked = true
+		t.walked[name] = a
+		c.Devs = devs
+	}
 	switch c.Type = o.text("type"); c.Type {
 	case "filter", "nat", "route":
 	default:
