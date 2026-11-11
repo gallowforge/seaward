@@ -1,0 +1,56 @@
+name: nft-netdev-egress
+about: A chain on the egress hook sees packets as they leave through its interface, after
+about: everything Seaward walks. This one is on eth0 and drops only what leaves for the discard
+about: port, so a packet sent on to the container, which leaves through the bridge, never meets it
+about: and is decided. Which interface a chain is on is in nft's text listing in every version; an
+about: older nft leaves it out of its JSON, and a chain nobody can place would leave every packet
+about: that is sent on undecided. The ingress chain beside it carries a comment, which nft prints
+about: before the chain's declaration, and is walked all the same.
+container: yes
+publish: 0.0.0.0:8080->80/tcp
+--- nft
+table netdev edge {
+	chain arriving {
+		type filter hook ingress device "eth0" priority -500; policy accept;
+		comment "the uplink, as packets arrive"
+		ip saddr 198.51.100.7 tcp dport 22 drop
+	}
+	chain leaving {
+		type filter hook egress device "eth0" priority 0; policy accept;
+		comment "the uplink, as packets leave"
+		udp dport 9 drop
+	}
+}
+table ip nat {
+	chain prerouting {
+		type nat hook prerouting priority dstnat; policy accept;
+		fib daddr type local tcp dport 8080 dnat to 172.17.0.2:80
+	}
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		ip saddr 172.17.0.0/16 oifname != "docker0" masquerade
+	}
+}
+table inet filter {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state established,related accept
+		tcp dport 22 accept
+	}
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		ct state established,related accept
+		iifname "docker0" accept
+		ct status dnat accept
+	}
+}
+--- listen
+host tcp 0.0.0.0 22
+ctr tcp 0.0.0.0 80
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 8080 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:open
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8081 want:silent

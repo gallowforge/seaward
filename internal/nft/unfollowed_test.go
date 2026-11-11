@@ -107,6 +107,10 @@ func entryFor(t *testing.T, rs *rules.Ruleset, chain string) rules.Unfollowed {
 const (
 	underneath = ", underneath the bridge, bond or VLAN interface they arrive on, where seaward does not follow them"
 	arpNote    = ": seaward follows the IP packet through it and takes it that the address lookups before it (ARP) get through"
+	// How the sentence ends for a chain whose interface the JSON does not name, in a snapshot
+	// that has no text listing to name it.
+	notNamed = " an interface the snapshot does not name: nft's JSON listing gives none (nft 1.0.9, for one, never does), " +
+		"and the snapshot has no text listing, which seaward 0.1.1 and later save beside it and which settles the question"
 )
 
 // TestIngressChainIsWalked: an ingress chain that names its interfaces is a base chain of its
@@ -172,15 +176,17 @@ func TestIngressChainIsWalked(t *testing.T) {
 
 // TestChainsOutsideTheWalkedPath: a base chain that hooks in anywhere else is not walked. One
 // that can stop or change a packet seaward decides about becomes an Unfollowed entry that says
-// which packets pass it; one that cannot (no rules, no interface, frames that are only switched)
-// becomes a note.
+// which packets pass it; one that cannot (no rules, frames that are only switched) becomes a
+// note. An ingress or egress chain for which the JSON names no interface is not a chain without
+// one: an older nft leaves the interface out, so the chain may be on any.
 func TestChainsOutsideTheWalkedPath(t *testing.T) {
 	const (
-		noRules  = " was left out: it has no rules and lets everything pass\n"
-		noDevice = " was left out: it is attached to no interface, so it sees no packets\n"
-		nowhere  = ", a point of the packet path seaward does not know\n"
-		brIn     = "unfollowed: bridge-in only-stops: the chain c of table bridge br acts on frames as they arrive through a bridge, before the packet path seaward follows\n"
-		brOut    = "unfollowed: bridge-out only-stops: the chain c of table bridge br acts on frames as they leave through a bridge, after the packet path seaward follows\n"
+		noRules = " was left out: it has no rules and lets everything pass\n"
+		anyIn   = " acts on packets as they arrive on" + notNamed + "\n"
+		anyOut  = " acts on packets as they leave through" + notNamed + "\n"
+		nowhere = ", a point of the packet path seaward does not know\n"
+		brIn    = "unfollowed: bridge-in only-stops: the chain c of table bridge br acts on frames as they arrive through a bridge, before the packet path seaward follows\n"
+		brOut   = "unfollowed: bridge-out only-stops: the chain c of table bridge br acts on frames as they leave through a bridge, after the packet path seaward follows\n"
 	)
 	type left struct {
 		name  string
@@ -205,14 +211,14 @@ func TestChainsOutsideTheWalkedPath(t *testing.T) {
 			"unfollowed: out eth0 only-stops: the chain c of table netdev nd acts on packets as they leave through eth0, after the packet path seaward follows\n"},
 		{"egress, no rules", one("netdev", "nd", "egress", "accept", false, "eth0"),
 			"note: the chain c of table netdev nd" + noRules},
-		{"egress, no interface", one("netdev", "nd", "egress", "accept", true),
-			"note: the chain c of table netdev nd" + noDevice},
+		{"egress, no interface named", one("netdev", "nd", "egress", "accept", true),
+			"unfollowed: out * only-stops: the chain c of table netdev nd" + anyOut},
 
-		// An ingress chain that names no interface is attached to nothing.
-		{"ingress, no interface", one("netdev", "nd", "ingress", "accept", true),
-			"note: the chain c of table netdev nd" + noDevice},
-		{"ingress, no interface, an inet table that drops by default", one("inet", "t", "ingress", "drop", false),
-			"note: the chain c of table inet t" + noDevice},
+		// An ingress chain for which no interface is named may be on any of them.
+		{"ingress, no interface named", one("netdev", "nd", "ingress", "accept", true),
+			"unfollowed: in * only-stops: the chain c of table netdev nd" + anyIn},
+		{"ingress, no interface named, an inet table that drops by default", one("inet", "t", "ingress", "drop", false),
+			"unfollowed: in * only-stops: the chain c of table inet t" + anyIn},
 		{"ingress, no interface and no rules", one("netdev", "nd", "ingress", "accept", false),
 			"note: the chain c of table netdev nd" + noRules},
 
@@ -415,7 +421,7 @@ func TestDormantTableIsNotRunning(t *testing.T) {
 		arp      = "note: the chain in of table netdev nd drops by default every frame that arrives on eth0" + arpNote + "\n"
 		egress   = "unfollowed: out eth0 only-stops: the chain out of table netdev nd acts on packets as they leave through eth0, after the packet path seaward follows\n"
 		odd      = "unfollowed: in eth0 out eth0 only-stops: the chain odd of table netdev nd hooks in at input, a point of the packet path seaward does not know\n"
-		loose    = "note: the chain loose of table netdev nd was left out: it is attached to no interface, so it sees no packets\n"
+		loose    = "unfollowed: in * only-stops: the chain loose of table netdev nd acts on packets as they arrive on" + notNamed + "\n"
 		bridge   = "unfollowed: bridge-in only-stops: the chain pre of table bridge br acts on frames as they arrive through a bridge, before the packet path seaward follows\n"
 	)
 	h := labHost()
@@ -427,14 +433,14 @@ func TestDormantTableIsNotRunning(t *testing.T) {
 		want           string // what outside prints
 		web            engine.Class
 	}{
-		{"both running", tbl("netdev", "nd"), tbl("bridge", "br"), true, arp + loose + walkedIn + egress + odd + bridge, engine.Filtered},
+		{"both running", tbl("netdev", "nd"), tbl("bridge", "br"), true, arp + walkedIn + egress + odd + loose + bridge, engine.Filtered},
 		{"both switched off", tbl("netdev", "nd", "dormant"), tbl("bridge", "br", "dormant"), false,
 			"note: the table bridge br" + off + "note: the table netdev nd" + off, engine.Closed},
 		// nft writes a single flag as a bare string.
 		{"the netdev table switched off", `{"table": {"family": "netdev", "name": "nd", "flags": "dormant"}}`, tbl("bridge", "br"), false,
 			"note: the table netdev nd" + off + bridge, engine.Closed},
 		{"the bridge table switched off", tbl("netdev", "nd"), tbl("bridge", "br", "dormant"), true,
-			"note: the table bridge br" + off + arp + loose + walkedIn + egress + odd, engine.Filtered},
+			"note: the table bridge br" + off + arp + walkedIn + egress + odd + loose, engine.Filtered},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rs := listing(t,

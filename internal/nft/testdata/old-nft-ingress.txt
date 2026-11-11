@@ -1,0 +1,25 @@
+table netdev first {
+	chain ingress {
+		type filter hook ingress devices = { eth0, eth1 } priority -300; policy accept;
+		tcp dport 22 accept
+		tcp dport 80 jump web
+	}
+
+	chain web {
+		iifname "eth1" return
+		drop
+	}
+}
+table inet second {
+	chain ingress {
+		type filter hook ingress device "eth0" priority filter; policy accept;
+		tcp dport 22 drop
+		tcp dport 8080 accept
+	}
+}
+table netdev third {
+	chain ingress {
+		type filter hook ingress device "eth1" priority 100; policy accept;
+		tcp dport 8080 drop
+	}
+}

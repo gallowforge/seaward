@@ -287,6 +287,7 @@ func Script(sc *Scenario, opt ScriptOptions) string {
 	w(`lab_sec iptables-save iptables-save`)
 	w(`lab_sec ip6tables-save ip6tables-save`)
 	w(`lab_sec nft-json nft -j list ruleset`)
+	w(`lab_sec nft-text nft list ruleset`)
 	w(`lab_sec ss ss -Htulpn`)
 	w(`lab_sec ip-addr ip -j -d addr show`)
 	w(`lab_sec ip-route-4 ip -j -4 route show table main`)

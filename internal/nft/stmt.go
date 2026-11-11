@@ -74,8 +74,10 @@ func verdictOf(n *node) (rules.Verdict, bool) {
 	case "continue":
 		return rules.Verdict{Kind: rules.Continue}, true
 	case "jump", "goto":
+		// A chain has a name. A jump to one without is not one the kernel holds, and not one
+		// the engine could follow.
 		target, ok := v.obj().get("target").str()
-		if !ok {
+		if !ok || target == "" {
 			return rules.Verdict{}, false
 		}
 		if key == "jump" {

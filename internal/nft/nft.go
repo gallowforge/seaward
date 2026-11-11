@@ -38,7 +38,20 @@ import (
 // The error is only for a document that is not JSON of this shape. Anything else it cannot
 // represent becomes a note, an Unknown or an UnknownStmt.
 func ParseJSON(data []byte, shared []*rules.Table) (*rules.Ruleset, error) {
-	return guarded(func() (*rules.Ruleset, error) { return parse(data, shared) })
+	return guarded(func() (*rules.Ruleset, error) { return parse(data, nil, shared) })
+}
+
+// ParseListing is ParseJSON with, beside the document, what "nft list ruleset" printed for the
+// same rules. The text is read for what the JSON of an older nft leaves out: the interfaces a
+// base chain is attached to (listing.go). A snapshot taken before seaward kept the text has
+// none; ParseJSON reads it.
+func ParseListing(data []byte, text string, shared []*rules.Table) (*rules.Ruleset, error) {
+	return guarded(func() (*rules.Ruleset, error) {
+		if strings.TrimSpace(text) == "" {
+			return parse(data, nil, shared)
+		}
+		return parse(data, textChains(text), shared)
+	})
 }
 
 // guarded turns a panic into an error. The parser is written, and fuzzed, not to panic; this is
@@ -61,6 +74,9 @@ type parser struct {
 	sideBy map[string]*side
 	aside  []*aside // in the order of the listing
 	noted  map[string]bool
+	// text holds the base chains of the text listing, when the snapshot has one beside the
+	// JSON: nil when it has none.
+	text map[string]textChain
 }
 
 // table is one ip, ip6, inet or netdev table of the document.
@@ -90,12 +106,16 @@ type side struct {
 type aside struct {
 	family, table, name, hook string
 	devs                      []string // the interfaces it is attached to
-	drop                      bool     // its policy drops
-	rules                     int
-	acts                      bool  // a rule of it does more than drop a packet or let it pass
-	side                      *side // its table, when that is a bridge table
-	dormant                   bool  // its table is switched off
-	walked                    bool  // an ingress chain that is walked where a packet arrives
+	// unnamed says no listing names the interfaces: the JSON has none for the chain, and there
+	// is no text listing that declares the chain. That is not a chain attached to nothing. An
+	// older nft leaves the interfaces out of its JSON, so the chain may be on any of them.
+	unnamed bool
+	drop    bool // its policy drops
+	rules   int
+	acts    bool  // a rule of it does more than drop a packet or let it pass
+	side    *side // its table, when that is a bridge table
+	dormant bool  // its table is switched off
+	walked  bool  // an ingress chain that is walked where a packet arrives
 }
 
 // chain is a chain with its rules as the document wrote them.
@@ -113,8 +133,8 @@ type setInfo struct {
 	data    []*node // maps that hold values: one per element of set.Elems
 }
 
-func parse(data []byte, shared []*rules.Table) (*rules.Ruleset, error) {
-	p, err := read(data)
+func parse(data []byte, text map[string]textChain, shared []*rules.Table) (*rules.Ruleset, error) {
+	p, err := read(data, text)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +168,7 @@ func parse(data []byte, shared []*rules.Table) (*rules.Ruleset, error) {
 
 // read takes the document apart: tables, chains with their rules still as the document wrote
 // them, sets and maps. Nothing in a rule is translated yet.
-func read(data []byte) (*parser, error) {
+func read(data []byte, text map[string]textChain) (*parser, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var top any
@@ -172,6 +192,7 @@ func read(data []byte) (*parser, error) {
 		byName: map[string]*table{},
 		sideBy: map[string]*side{},
 		noted:  map[string]bool{},
+		text:   text,
 	}
 	// The listing is read by kind, so that a rule may come before its chain or its set.
 	var tables, chains, sets, maps, limits, flows, ruleList []*object
@@ -344,6 +365,23 @@ func (p *parser) setAside() {
 			default:
 				u.BridgeIn, u.BridgeOut = true, true
 			}
+		case (a.hook == "ingress" || a.hook == "egress") && len(a.devs) == 0 && a.unnamed:
+			// Not a chain attached to nothing: a chain whose interfaces no listing names. It may
+			// be on any, so every packet that arrives, or leaves, may pass it.
+			const why = " an interface the snapshot does not name: nft's JSON listing gives none (nft 1.0.9, for one, never does), " +
+				"and the snapshot has no text listing, which seaward 0.1.1 and later save beside it and which settles the question"
+			if a.hook == "ingress" {
+				u.In = []string{"*"}
+				u.Why = chain + " acts on packets as they arrive on" + why
+			} else {
+				u.Out = []string{"*"}
+				u.Why = chain + " acts on packets as they leave through" + why
+			}
+			if p.text != nil {
+				// The text listing is there and does not declare the chain on this hook: the
+				// rules changed between the two listings, or the text breaks off.
+				u.Why = strings.Replace(u.Why, why, " an interface neither of nft's two listings settles: the JSON gives none, and the text does not declare the chain as the JSON has it", 1)
+			}
 		case (a.hook == "ingress" || a.hook == "egress") && len(a.devs) == 0:
 			idle = "it is attached to no interface, so it sees no packets"
 		case a.hook == "egress":
@@ -468,10 +506,22 @@ func (t *table) chain(name string) *chain {
 func (p *parser) addChain(o *object) {
 	family, name, hook := o.text("family"), o.text("name"), o.text("hook")
 	devs, drop := o.get("dev").strs(), o.text("policy") == "drop"
+	// The JSON of an older nft names no interface for any chain. The text listing does, and a
+	// chain it declares with none has none. With neither, the interfaces are not known. The
+	// text is taken at its word for the chain the JSON has: the same name on the same hook. The
+	// two listings are two commands, and the rules may have changed between them.
+	unnamed := false
+	if len(devs) == 0 && hook != "" {
+		if c, ok := p.text[textKey(family, o.text("table"), name)]; ok && c.hook == hook {
+			devs = c.devs
+		} else {
+			unnamed = true
+		}
+	}
 	out := func(table string, dormant bool) *aside {
 		a := &aside{
 			family: family, table: table, name: name, hook: hook,
-			devs: devs, drop: drop, dormant: dormant,
+			devs: devs, unnamed: unnamed, drop: drop, dormant: dormant,
 		}
 		p.aside = append(p.aside, a)
 		return a

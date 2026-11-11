@@ -1,10 +1,10 @@
 {
   "note": "The figures in the numbers band of the README. Count them again before a release: `make lab` prints the scenarios, the probes and the disagreements in one line (the probes are those of the written scenarios and of the 40 random rulesets it builds with its default seed); `make test` prints one line for every test that ran.",
   "figures": [
-    { "value": "80", "label": "firewall scenarios run on the real kernel", "more": "the files in internal/lab/scenarios" },
-    { "value": "2,105", "label": "real packets compared with the engine's answer", "more": "the probes of one `make lab` run" },
+    { "value": "81", "label": "firewall scenarios run on the real kernel", "more": "the files in internal/lab/scenarios" },
+    { "value": "2,111", "label": "real packets compared with the engine's answer", "more": "the probes of one `make lab` run" },
     { "value": "0", "label": "disagreements", "more": "the same line of `make lab`" },
-    { "value": "1,194", "label": "automated tests", "more": "`make test`" },
+    { "value": "1,212", "label": "automated tests", "more": "`make test`" },
     { "value": "1", "label": "file to install, no dependencies", "more": "the binary" }
   ]
 }

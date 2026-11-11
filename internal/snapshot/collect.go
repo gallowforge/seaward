@@ -28,6 +28,7 @@ var commands = []command{
 	{"iptables-legacy-save", []string{"iptables-legacy-save"}},
 	{"ip6tables-legacy-save", []string{"ip6tables-legacy-save"}},
 	{"nft-json", []string{"nft", "-j", "list", "ruleset"}},
+	{"nft-text", []string{"nft", "list", "ruleset"}},
 	{"ipset-save", []string{"ipset", "save"}},
 	{"ss", []string{"ss", "-Htulpn"}},
 	{"ip-addr", []string{"ip", "-j", "-d", "addr", "show"}},
@@ -241,7 +242,12 @@ func collectWith(ctx context.Context, run runner, hostname string, root bool, ha
 			}
 		}
 	}
-	c.section("nft-json", "", nil)
+	// The same rules a second time, as text: an older nft leaves the interface of a chain out
+	// of its JSON, and its text names it. Only when the first listing worked: one that failed
+	// is noted once.
+	if _, ok := c.section("nft-json", "", nil); ok {
+		c.section("nft-text", "", nil)
+	}
 	c.section("ipset-save", "", nil)
 
 	// The machine.

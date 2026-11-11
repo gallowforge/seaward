@@ -23,6 +23,7 @@ var sectionWhat = map[string]string{
 	"iptables-legacy-save":  "legacy IPv4 packet rules",
 	"ip6tables-legacy-save": "legacy IPv6 packet rules",
 	"nft-json":              "nftables packet rules",
+	"nft-text":              "nftables packet rules as text",
 	"ipset-save":            "ipsets (named address lists the rules can use)",
 	"ss":                    "listening sockets",
 	"ip-addr":               "network interfaces and their addresses",
@@ -43,7 +44,7 @@ var sectionWhat = map[string]string{
 // rootOnly are sections whose command fails without root.
 var rootOnly = map[string]bool{
 	"iptables-save": true, "ip6tables-save": true, "iptables-legacy-save": true, "ip6tables-legacy-save": true,
-	"nft-json": true, "ipset-save": true, "ufw-status": true, "docker-ss": true,
+	"nft-json": true, "nft-text": true, "ipset-save": true, "ufw-status": true, "docker-ss": true,
 }
 
 func build(b *Bundle) (*rules.Ruleset, *host.Host, error) {
@@ -173,7 +174,10 @@ func buildRules(b *Bundle, rs *rules.Ruleset, h *host.Host, notRoot bool) {
 		}
 	}()
 	if body, ok := b.Get("nft-json"); ok && strings.TrimSpace(body) != "" {
-		n, err := nft.ParseJSON([]byte(body), shared)
+		// The same rules as text, when the collector kept them: read for the interfaces of the
+		// chains, which the JSON of an older nft leaves out. A snapshot without it reads as before.
+		text, _ := b.Get("nft-text")
+		n, err := nft.ParseListing([]byte(body), text, shared)
 		if err != nil {
 			parseNote("nft-json", err)
 		} else {

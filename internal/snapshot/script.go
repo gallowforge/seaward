@@ -69,7 +69,8 @@ if [ $legacy = no ]; then
 		if get $t $t && printf '%s\n' "$o" | grep -q '^\*'; then out $t "$o"; fi
 	done
 fi
-run nft-json nft -j list ruleset
+# The same rules again as text: an older nft leaves the interface of a chain out of its JSON.
+if run nft-json nft -j list ruleset; then run nft-text nft list ruleset; fi
 run ipset-save ipset save
 
 # The machine.

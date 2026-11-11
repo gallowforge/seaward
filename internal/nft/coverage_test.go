@@ -121,7 +121,7 @@ func unlooked(path string, plain []rules.Expr) bool {
 func TestNoKeyIsDroppedSilently(t *testing.T) {
 	planted, exempt := 0, 0
 	for _, name := range fixtures {
-		p, err := read(readFile(t, name+".json"))
+		p, err := read(readFile(t, name+".json"), nil)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

@@ -13,6 +13,12 @@ What a scan gets right now:
 - **Chains on the ingress hook are followed.** nftables can drop a packet as it arrives on an
   interface, before every other chain (`hook ingress`, in a netdev or an inet table). 0.1.0 left
   those chains out, so a port they drop was reported as reachable.
+- **An ingress chain is followed on an older nftables too.** nft 1.0.9, which Ubuntu 24.04
+  ships, leaves the interface of a chain out of its JSON listing, and such a chain was taken for
+  one attached to nothing: a port it drops was called open. The interface is now read from nft's
+  text listing, which a snapshot holds beside the JSON one. In a snapshot without it the chain
+  is listed under "not followed" and every port it could stop is undecided, with the reason.
+  The project's own CI found this, on a runner with that nftables, before 0.1.1 was tagged.
 - **A chain Seaward does not follow is named, and decides nothing.** An egress chain, a chain of a
   bridge table, an ingress chain underneath a bridge, a bond or a VLAN: a port whose packets pass
   one is undecided and the report lists the chain under "not followed". When all such a chain can
@@ -64,6 +70,10 @@ Snapshots and the command line:
 - **Snapshots mask hardware (MAC) addresses** in the interface list: addresses, bridge ids,
   alternative names made from an address, UUID device ids. A snapshot taken by 0.1.0 holds them as
   printed.
+- **Snapshots hold nft's text listing** (`nft list ruleset`, the section `nft-text`) beside the
+  JSON one. A snapshot taken by 0.1.0 has none and still reads.
+- **Two rules no nft writes are read as unknown**, where they made a rule of unsound shape: a
+  jump to a chain with no name, and a comparison of a key made of no field. The fuzzer found both.
 - **A failing `iptables-legacy-save` is written down**, and that family of rules counts as unread.
 - **`seaward why` refuses a malformed port.** `22/tcp/udp` used to be read as udp; `tcp/5432` and
   `udp 53` are no longer accepted and get a message with the right spelling.
@@ -79,13 +89,13 @@ The demo, the proof and the build:
 - **The demo** shows the chains that were not followed and how a packet ends otherwise. A long
   rule wraps inside its box, and the boxes are measured again when the window changes size. A
   lane that many named senders reach says how many they are; their names stand in its row.
-- **Checked against the real kernel**: 80 scenarios (67 before) and 40 random rulesets, 2,105 real
-  packets, 0 disagreements. The thirteen new scenarios cover ingress chains, rewrites to a range
-  of ports, a rewrite behind a jump, a goto and a verdict map, a target range inside a long range
-  of ports, addresses on the loopback and on a bridge, many senders let in one by one, and
-  senders told apart by a set. The lab now holds the scan to the kernel as well as the engine:
+- **Checked against the real kernel**: 81 scenarios (67 before) and 40 random rulesets, 2,111 real
+  packets, 0 disagreements, with nft 1.0.9 and with a current nft alike. The fourteen new
+  scenarios cover ingress chains, an egress chain, rewrites to a range of ports, a rewrite behind
+  a jump, a goto and a verdict map, a target range inside a long range of ports, addresses on
+  the loopback and on a bridge, many senders let in one by one, and senders told apart by a set. The lab now holds the scan to the kernel as well as the engine:
   a port the kernel answers on has to be a port the scan asks about and calls reachable.
-  1,194 automated tests (964 before).
+  1,212 automated tests (964 before).
 - **CI** runs every step with `pipefail`.
 
 ## 0.1.0

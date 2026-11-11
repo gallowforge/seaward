@@ -221,7 +221,7 @@ func TestOddListingsDegrade(t *testing.T) {
 			t.Fatalf("odd listing %d is not JSON; fix the test", i)
 		}
 		for _, sh := range [][]*rules.Table{nil, shared} {
-			rs, err := parse([]byte(s), sh)
+			rs, err := parse([]byte(s), nil, sh)
 			if err != nil {
 				t.Errorf("odd listing %d: %v", i, err)
 				continue
@@ -237,7 +237,7 @@ func TestOddListingsDegrade(t *testing.T) {
 		}
 	}
 	// The big one must have turned its nonsense into unknowns, not into nothing.
-	rs, _ := parse([]byte(oddListings[5]), nil)
+	rs, _ := parse([]byte(oddListings[5]), nil, nil)
 	unknowns, rulesN := 0, 0
 	for _, tb := range rs.Tables {
 		for _, c := range tb.Chains {
@@ -319,9 +319,18 @@ func FuzzParseJSON(f *testing.F) {
 		{Iif: "eth0", Src: addr("2001:db8:99::7"), Dst: addr("2001:db8:1::10"), Proto: "udp", Dport: 53},
 		{Iif: "eth1", Src: addr("10.20.0.5"), Dst: addr("172.17.0.2"), Proto: "tcp", Dport: 80},
 	}
+	// The text listing is read out of the same snapshot, and has to take any bytes as well.
+	for _, name := range append([]string{"old-nft-ingress"}, fixtures...) {
+		f.Add(readFile(f, name+".txt"))
+	}
 	f.Fuzz(func(t *testing.T, data []byte) {
+		for k, c := range textChains(string(data)) {
+			if c.hook == "" || strings.Count(k, "\x00") < 2 {
+				t.Fatalf("a base chain with no hook or no table: %q %+v", k, c)
+			}
+		}
 		for _, sh := range [][]*rules.Table{nil, shared} {
-			rs, err := parse(data, sh)
+			rs, err := parse(data, nil, sh)
 			if err != nil {
 				if rs != nil {
 					t.Fatal("an error and a ruleset")

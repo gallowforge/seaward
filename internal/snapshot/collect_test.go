@@ -19,7 +19,7 @@ var readOnly = map[string]func(args []string) bool{
 	"ip6tables-save":        func(a []string) bool { return len(a) == 0 },
 	"iptables-legacy-save":  func(a []string) bool { return len(a) == 0 },
 	"ip6tables-legacy-save": func(a []string) bool { return len(a) == 0 },
-	"nft":                   func(a []string) bool { return eq(a, "-j", "list", "ruleset") },
+	"nft":                   func(a []string) bool { return eq(a, "-j", "list", "ruleset") || eq(a, "list", "ruleset") },
 	"ipset":                 func(a []string) bool { return eq(a, "save") },
 	// ss -K kills sockets; only the listing flags are allowed.
 	"ss": func(a []string) bool { return eq(a, "-Htulpn") },
@@ -162,6 +162,7 @@ func fakeMachine() (programs []string, cmds map[string]fakeCmd) {
 		"iptables-legacy-save":           {out: "# Warning: no tables\n"},
 		"ip6tables-legacy-save":          {out: "*raw\n:PREROUTING ACCEPT [0:0]\nCOMMIT\n"},
 		"nft -j list ruleset":            {out: `{"nftables": [{"metainfo": {"json_schema_version": 1}}]}` + "\n"},
+		"nft list ruleset":               {out: "table inet filter {\n\tchain input {\n\t\ttype filter hook input priority filter; policy accept;\n\t}\n}\n"},
 		"ss -Htulpn":                     {out: "tcp   LISTEN 0      128   0.0.0.0:22   0.0.0.0:*   users:((\"sshd\",pid=812,fd=3))\n### odd line\n"},
 		"ip -j -d addr show":             {out: fakeIPAddr + "\n"},
 		"ip -j -4 route show table main": {out: `[{"dst":"default","gateway":"192.0.2.1","dev":"eth0"}]` + "\n"},
@@ -224,7 +225,7 @@ func TestCollectWith(t *testing.T) {
 		}
 		names = append(names, n)
 	}
-	want := []string{"meta", "iptables-version", "iptables-save", "ip6tables-save", "ip6tables-legacy-save", "nft-json",
+	want := []string{"meta", "iptables-version", "iptables-save", "ip6tables-save", "ip6tables-legacy-save", "nft-json", "nft-text",
 		"ss", "ip-addr", "ip-route-4", "ip-route-6", "sysctl", "docker-version", "docker-ps", "docker-net",
 		"docker-ss " + idWeb, "firewalld-state", "firewalld-active", "firewalld-zones",
 		"firewalld-service ssh", "firewalld-service web-extra", "errors"}
@@ -291,6 +292,60 @@ func TestCollectWithoutRoot(t *testing.T) {
 	}
 	if b.Meta()["root"] != "no" {
 		t.Error("meta root")
+	}
+	// The text listing is asked for only when the JSON one worked: nft is refused once, and
+	// the snapshot says so once.
+	if _, twice := errs["nft-text"]; twice || b.Has("nft-text") {
+		t.Errorf("the text listing was asked for after the JSON one failed: errors %q", errs)
+	}
+	for _, c := range calls {
+		if strings.Join(c, " ") == "nft list ruleset" {
+			t.Error("nft list ruleset ran after nft -j list ruleset was refused")
+		}
+	}
+}
+
+// The text listing of the nft rules is kept beside the JSON one, word for word: an older nft
+// leaves the interface of a chain out of its JSON, and the text has it.
+func TestCollectKeepsTheTextListing(t *testing.T) {
+	programs, cmds := fakeMachine()
+	const text = "table netdev early {\n\tchain ingress {\n\t\ttype filter hook ingress device \"eth0\" priority -500; policy accept;\n\t\ttcp dport 80 drop\n\t}\n}"
+	cmds["nft list ruleset"] = fakeCmd{out: text + "\n"}
+	var calls [][]string
+	b := collectWith(context.Background(), fakeRunner(t, programs, cmds, &calls), fakeHost, true, func(string) bool { return true })
+	if got, ok := b.Get("nft-text"); !ok || got != text {
+		t.Errorf("nft-text:\n%s", got)
+	}
+	// It comes right after the JSON listing, and a snapshot that went through text keeps it.
+	var order []string
+	for _, s := range b.Sections {
+		order = append(order, s.Name)
+	}
+	if i := slices.Index(order, "nft-json"); i < 0 || i+1 >= len(order) || order[i+1] != "nft-text" {
+		t.Errorf("sections: %q", order)
+	}
+	again, err := Parse(b.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := again.Get("nft-text"); got != text {
+		t.Errorf("after a round trip:\n%s", got)
+	}
+	// A text listing that fails where the JSON one worked is one more line of errors, and the
+	// rules still count as read: they are in the JSON.
+	cmds["nft list ruleset"] = fakeCmd{stderr: "Error: Could not process rule: Out of memory\n", code: 1}
+	b = collectWith(context.Background(), fakeRunner(t, programs, cmds, &calls), fakeHost, true, func(string) bool { return true })
+	if b.Has("nft-text") || !b.Has("nft-json") || b.Errors()["nft-text"] == "" {
+		t.Errorf("a failed text listing: errors %q", b.Errors())
+	}
+	rs, _, err := Build(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range rs.Unread {
+		if strings.Contains(u.Why, "nft") {
+			t.Errorf("the rules count as unread: %q", u.Why)
+		}
 	}
 }
 

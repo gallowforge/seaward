@@ -77,6 +77,7 @@ version does not read.
 | `iptables-legacy-save` | `iptables-legacy-save` | only when the default is nf_tables and the legacy tool exists and prints rules; when the tool fails, an `errors` line, as for any other command |
 | `ip6tables-legacy-save` | `ip6tables-legacy-save` | only when the default is nf_tables and the legacy tool exists and prints rules; when the tool fails, an `errors` line, as for any other command |
 | `nft-json` | `nft -j list ruleset` | one JSON document |
+| `nft-text` | `nft list ruleset` | the same rules as nft prints them for people. Taken only when the JSON listing worked, and read for one thing the JSON of an older nft leaves out: the interfaces of a base chain. New in 0.1.1; a snapshot without it reads as before. |
 | `ipset-save` | `ipset save` | |
 | `ss` | `ss -Htulpn` | host listeners |
 | `ip-addr` | `ip -j -d addr show` | JSON; `-d` gives `linkinfo.info_kind`. Hardware addresses are masked before the section is written (`hardwareMasks`). |
@@ -99,7 +100,8 @@ error). A command that exists and fails (not root) produces an `errors` line; th
 what it could not see.
 
 The collector exists twice and the two must stay in step: `Collect` in Go, and `Script`, the same
-list as a POSIX shell script for a machine nobody wants to put a binary on. Both set `LC_ALL=C`,
+list as a POSIX shell script for a machine nobody wants to put a binary on. (The kernel lab takes
+its snapshots with a third copy of the rule listings, in `internal/lab/script.go`.) Both set `LC_ALL=C`,
 give each command five seconds, and drop `DOCKER_HOST`, `DOCKER_CONTEXT` and `DOCKER_CONFIG` so the
 snapshot describes this machine and never a remote one. The only values that travel from command
 output into a command line are container ids (hex only), a container's process id (digits only) and
@@ -216,6 +218,29 @@ addresses (see "NAT to a range" above).
 table) become base chains with `Hook: "ingress"` and `Chain.Devs`, the interfaces they are attached
 to (`eth*` is every interface whose name starts that way). The engine walks them first.
 
+**Which interfaces, when the JSON does not say.** A current nft writes them into the chain as
+`"dev"`. nft 1.0.9, which Ubuntu 24.04 ships, writes no `"dev"` at all, for any chain, and its
+text listing has them: `hook ingress device "eth0"`, or `devices = { eth0, eth1 }` for several.
+So `nft.ParseListing(data, text, shared)` takes the text listing beside the JSON (`listing.go`)
+and looks a chain's interfaces up there when the JSON names none. Three things can come of it,
+and they are kept apart, because the difference decides every port of the machine:
+
+- The text declares the chain on interfaces: it is on those, and is walked.
+- The text declares the chain with none: it is attached to nothing, sees no packet, and is a
+  note. Only the text can show this.
+- There is no text (a snapshot taken before 0.1.1, or one whose text listing failed), or the
+  text does not declare the chain on the hook the JSON has it on: the interfaces are not known.
+  The chain is then not read as idle. It becomes an `Unfollowed` entry for every interface
+  (`In: "*"` for an ingress chain, `Out: "*"` for an egress chain), so every packet it could
+  stop is undecided. Its sentence says that the snapshot does not name the interface, that
+  nft's JSON gives none (as nft 1.0.9 never does), and that the text listing, which 0.1.1 and
+  later save beside it, settles the question.
+
+The text is cut into words with strings in double quotes kept whole, so nothing a rule or a
+comment says can pass for a declaration, and a declaration counts only when it runs to its
+semicolon: a listing that breaks off never makes a chain look attached to nothing. Where the
+JSON does name the interfaces, the JSON stands.
+
 **Chains outside the walked path** are not read rule by rule. A base chain on an egress hook, any
 base chain of a `bridge` table, and a chain on a hook this version does not know each become one
 `rules.Unfollowed` entry: a sentence that names the chain, the interfaces whose arriving (`In`) or
@@ -225,7 +250,7 @@ gets an entry too (`Walked`), for the packets that pass its interface underneath
 arrive on: a port of a bridge or bond, the interface a VLAN sits on. A chain with no rules and an
 accept policy, a bridge chain on the forward hook (frames switched between ports never enter the
 IP path), a table switched off with `flags dormant` and an `arp` table are a note and nothing
-more.
+more. So is an ingress or egress chain that the text listing declares with no interface.
 
 **Verdict maps and `continue`, as the kernel does it:** a verdict map with no entry for the packet
 ends the rule, like a failed match. An entry that says `continue` goes on to the next expression of
@@ -563,6 +588,11 @@ Each of these was a disagreement the lab found; each is now a scenario.
    IPv6 treats an ICMPv6 "unreachable" as a soft error while connecting; the kernel limits ICMP
    errors per namespace, so one refusal in a burst goes missing unless `icmp_ratemask` is cleared;
    and a "silent" probe must never be retried, because a rate limit lets only the first packet pass.
+9. For the reader: nft 1.0.9 names the interface of an ingress chain in its text listing and not
+   in its JSON. The lab found it the first time it ran with that nft, on CI's runner: fourteen
+   packets of the four ingress scenarios, the engine saying "open" where the kernel was silent,
+   because a chain with no interface in the JSON was read as attached to nothing. The lab has to
+   pass with an older nft and a current one; the snapshot now holds both listings.
 
 ## Docker's rules, by version
 

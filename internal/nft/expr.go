@@ -559,6 +559,11 @@ func (c *ctx) keys(n *node) (fields []rules.Field, kinds []kind, name, why strin
 		kinds = append(kinds, p.k)
 		names = append(names, p.name)
 	}
+	if len(parts) == 0 && why == "" {
+		// A key put together from nothing: nft writes no such thing, and nothing can be said
+		// of what would match it.
+		why = "this rule compares a key made of no field, which is not the way nft writes one"
+	}
 	return fields, kinds, strings.Join(names, " . "), why
 }
 

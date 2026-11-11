@@ -224,6 +224,36 @@ func TestScriptMatchesCollector(t *testing.T) {
 	}
 }
 
+// TestScriptAsksForTheTextListingOnce: like the collector, the script asks nft for its text
+// listing only when the JSON listing worked, so a machine that refuses nft says so in one line.
+func TestScriptAsksForTheTextListingOnce(t *testing.T) {
+	programs, cmds := fakeMachine()
+	for k := range cmds {
+		if strings.HasPrefix(k, "nft ") {
+			cmds[k] = fakeCmd{stderr: "Error: Operation not permitted (you must be root)\n", code: 1}
+		}
+	}
+	got, _, ok := runScript(t, programs, cmds)
+	if !ok {
+		t.Skip("no sh, sed, grep, awk or cat to run the script with")
+	}
+	var calls [][]string
+	want := collectWith(context.Background(), fakeRunner(t, programs, cmds, &calls), fakeHost, true, func(string) bool { return true })
+	sameSnapshot(t, got, want)
+	if errs := got.Errors(); errs["nft-json"] == "" || errs["nft-text"] != "" || got.Has("nft-text") {
+		t.Errorf("errors: %q", errs)
+	}
+	// And when nft answers, the text is in the script's snapshot as the collector has it.
+	programs, cmds = fakeMachine()
+	got, _, _ = runScript(t, programs, cmds)
+	want = collectWith(context.Background(), fakeRunner(t, programs, cmds, &calls), fakeHost, true, func(string) bool { return true })
+	g, _ := got.Get("nft-text")
+	w, _ := want.Get("nft-text")
+	if g != w || !strings.Contains(g, "hook input") {
+		t.Errorf("nft-text:\n got %q\nwant %q", g, w)
+	}
+}
+
 // TestScriptLegacySave runs the script on the machines of TestCollectLegacySave: a legacy listing
 // that fails leaves the same errors line the collector writes, and one that is missing or empty
 // leaves nothing.

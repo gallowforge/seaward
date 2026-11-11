@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
@@ -219,6 +220,64 @@ func TestUnfollowedOnTheWayIn(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestChainOnAnInterfaceNobodyNames: the JSON listing of an older nft does not say which
+// interface an ingress or egress chain is attached to. Such a chain is not attached to nothing.
+// It may be on any interface, so every packet that arrives may pass it, and every packet that is
+// sent on may pass one on the way out. The answer is "not decided" with the chain named, never
+// the answer of the rules that were walked alone: that would call a port open that the chain
+// drops, which is what the engine did while the reader took such a chain for an idle one.
+func TestChainOnAnInterfaceNobodyNames(t *testing.T) {
+	const (
+		in  = "the chain ingress of table netdev early acts on packets as they arrive on an interface the snapshot does not name"
+		out = "the chain out of table netdev late acts on packets as they leave through an interface the snapshot does not name"
+	)
+	h := twoArmed(lis("0.0.0.0", 22, "sshd"))
+	arriving := func(onlyStops bool) *rules.Ruleset {
+		rs := outcomes()
+		rs.Unfollowed = []rules.Unfollowed{{Why: in, In: []string{"*"}, OnlyStops: onlyStops}}
+		return rs
+	}
+	for _, c := range []struct {
+		port uint16
+		walk Class
+	}{{22, Open}, {81, Closed}, {9100, Rejected}, {25, Filtered}, {3389, Forwarded}} {
+		for _, where := range []Probe{probe(world, me, c.port), on("eth1", "192.0.2.50", "192.0.2.1", c.port)} {
+			what := fmt.Sprintf("port %d arriving on %s", c.port, where.Iif)
+			if where.Iif == "" {
+				what = fmt.Sprintf("port %d from the internet", c.port)
+			}
+			decidedAlone := Run(outcomes(), h, where)
+			// A chain that may do anything: nothing is decided, on either interface.
+			r := Run(arriving(false), h, where)
+			if r.Class != Undecided || !slices.Equal(r.Unknowns, []string{in}) {
+				t.Errorf("%s, a chain that may do anything: %v, hanging on %q; want it not decided", what, r.Class, r.Unknowns)
+			}
+			// A chain that can only stop packets: what the walked rules already stop is stopped,
+			// and everything else is still not decided, with what the walk said kept beside it.
+			r = Run(arriving(true), h, where)
+			switch {
+			case decidedAlone.Class == Filtered:
+				decided(t, what+", a chain that can only stop it", r, Filtered)
+			case r.Class != Undecided || r.Otherwise != decidedAlone.Class || !slices.Equal(r.Unknowns, []string{in}):
+				t.Errorf("%s, a chain that can only stop it: %v, otherwise %v, hanging on %q; want not decided, otherwise %v",
+					what, r.Class, r.Otherwise, r.Unknowns, decidedAlone.Class)
+			}
+			if r.Class == Open || r.Class == Forwarded {
+				t.Errorf("%s is called %v although a chain on an interface nobody names may drop it", what, r.Class)
+			}
+		}
+	}
+
+	// An egress chain nobody places: a packet the machine sends on may pass it, whichever way it
+	// leaves; a packet that stays on the machine leaves through nothing.
+	leaving := outcomes()
+	leaving.Unfollowed = []rules.Unfollowed{{Why: out, Out: []string{"*"}}}
+	if r := Run(leaving, h, probe(world, me, 3389)); r.Class != Undecided || !slices.Equal(r.Unknowns, []string{out}) {
+		t.Errorf("a packet sent on: %v, hanging on %q; want it not decided", r.Class, r.Unknowns)
+	}
+	decided(t, "a packet for this machine, an egress chain nobody places", Run(leaving, h, probe(world, me, 22)), Open)
 }
 
 // TestUnknownArrivalInterface: with no route back to the sender and no interface named, where

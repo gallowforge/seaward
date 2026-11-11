@@ -29,7 +29,7 @@ type plainPair struct {
 // plainPairs collects every rule of a fixture that plainRule says yes to.
 func plainPairs(t *testing.T, name string) []plainPair {
 	t.Helper()
-	p, err := read(readFile(t, name+".json"))
+	p, err := read(readFile(t, name+".json"), nil)
 	if err != nil {
 		t.Fatalf("%s: %v", name, err)
 	}

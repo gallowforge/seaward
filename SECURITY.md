@@ -12,7 +12,7 @@ A scan runs a fixed list of listing commands, each with a five second limit, and
 | Command | What it is read for |
 | --- | --- |
 | `iptables-save`, `ip6tables-save`, the `-legacy` pair, `iptables -V` | the packet rules |
-| `nft -j list ruleset` | the nftables rules |
+| `nft -j list ruleset`, `nft list ruleset` | the nftables rules, as JSON and as text: an older nft leaves the interface of a chain out of its JSON |
 | `ipset save` | the sets those rules refer to |
 | `ss -Htulpn` | what is listening, and which program |
 | `ip -j -d addr show`, `ip -j route show table main` | interfaces, addresses, routes |
@@ -25,7 +25,7 @@ No command line is built from anything the machine prints, apart from container 
 process id and firewalld service names, and each of those is checked against a strict pattern first. `DOCKER_HOST`, `DOCKER_CONTEXT`
 and `DOCKER_CONFIG` are dropped, so a scan describes this machine and never a remote one.
 
-`seaward snapshot --script` prints the same list as a plain shell script of about 135 lines, for a
+`seaward snapshot --script` prints the same list as a plain shell script of about 140 lines, for a
 machine you would rather not put a binary on. Read it before you run it.
 
 ## What a snapshot holds
