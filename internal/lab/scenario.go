@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package lab is the proof: it loads rulesets into the real Linux kernel inside throwaway network
 // namespaces, sends real packets, and compares what really happened with what the engine says.
 //

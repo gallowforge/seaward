@@ -1,4 +1,4 @@
-//go:build kernel
+//go:build kernel && linux
 
 package lab
 
