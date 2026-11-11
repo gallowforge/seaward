@@ -1,0 +1,61 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+
+jobs:
+  # A tag can be pushed on a commit whose checks never ran, so the tests run
+  # here too, on both systems a binary is built for, before anything is
+  # published.
+  verify:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: vet and test
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+
+  binaries:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: build
+        run: make release VERSION=${GITHUB_REF_NAME}
+      - name: publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # this version's section of the changelog, without its heading
+          notes=$(awk -v want="## ${GITHUB_REF_NAME#v}" '/^## / { on = ($0 == want); next } on' CHANGELOG.md)
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            && gh release upload "$GITHUB_REF_NAME" dist/* --clobber \
+            || gh release create "$GITHUB_REF_NAME" dist/* --title "Seaward $GITHUB_REF_NAME" --notes "$notes"
+
+  # the live demo shows the version of the latest release, so it is built again once there is one
+  demo:
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: rebuild the live demo
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main

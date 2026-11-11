@@ -1,0 +1,201 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false   # no go.sum: there are no dependencies to cache
+      - name: the page (typecheck, tests)
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: vet and test
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+      - name: build every release target
+        run: |
+          for t in linux/amd64 linux/arm64 darwin/arm64 darwin/amd64; do
+            CGO_ENABLED=0 GOOS=${t%/*} GOARCH=${t#*/} go build -trimpath -o /dev/null ./cmd/seaward
+          done
+          make build
+      - name: every sample reads the way its story says
+        run: |
+          set -x
+          ./bin/seaward scan -f samples/shop-1.snapshot
+          ./bin/seaward scan -f samples/shop-1.snapshot --check && exit 1 || test $? -eq 3
+          ./bin/seaward scan -f samples/shop-1-fixed.snapshot --check
+          ./bin/seaward scan -f samples/shop-1-no-root.snapshot --check && exit 1 || test $? -eq 4
+          ./bin/seaward scan -f samples/edge-1.snapshot --check
+          ./bin/seaward why 5432 -f samples/shop-1.snapshot
+      - name: the collector script is plain sh
+        run: |
+          ./bin/seaward snapshot --script > collect.sh
+          sh -n collect.sh
+          # without root it still ends in a snapshot the reader accepts, and says what it could not read
+          sh collect.sh > unprivileged.snapshot
+          ./bin/seaward scan -f unprivileged.snapshot
+      - name: the live demo builds
+        run: make pages
+      - uses: actions/upload-artifact@v7
+        with:
+          name: seaward-linux-amd64
+          path: bin/seaward
+
+  # The engine is a model of the kernel's packet path, so the kernel is asked: every scenario
+  # is built for real in a throwaway network namespace, real packets are sent through it, and
+  # what happened is compared with what the engine said would happen.
+  kernel:
+    name: the engine against the real kernel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: the tools the scenarios are written in
+        run: |
+          for t in iptables ip6tables nft ip unshare; do command -v $t >/dev/null || need=1; done
+          if [ -n "${need:-}" ]; then sudo apt-get update -qq && sudo apt-get install -y -qq iptables nftables iproute2 util-linux; fi
+          uname -r; iptables -V; nft -v
+      - name: every scenario, in a private network namespace
+        env:
+          SEAWARD_LAB_SUDO: 1
+          SEAWARD_LAB_SUMMARY: lab.json
+        run: go test -tags kernel ./internal/lab/ -run Kernel -count=1 -v | tee lab.txt
+      - name: summary
+        if: always()
+        run: |
+          {
+            echo '### The engine against the real kernel'
+            echo
+            echo "Kernel $(uname -r)"
+            echo
+            echo '```'
+            grep -E 'scenarios, .* probes' lab.txt || tail -20 lab.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The finding Seaward exists for, on a real machine: ufw is on with default deny, Docker
+  # publishes a port, and a connection from outside gets through to it all the same. Seaward
+  # has to say so, and a real connection from another network namespace has to agree.
+  machine:
+    name: a real machine, ufw on, Docker publishing past it
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: make build
+      - name: ufw on with default deny, one published container, one plain listener
+        run: |
+          set -eux
+          command -v ufw >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ufw; }
+          sudo ufw default deny incoming
+          sudo ufw allow 22/tcp
+          sudo ufw --force enable
+          docker run -d --name web -p 8080:80 nginx:alpine
+          mkdir -p /tmp/www && echo plain > /tmp/www/index.html
+          nohup python3 -m http.server 9000 --bind 0.0.0.0 --directory /tmp/www >/dev/null 2>&1 &
+          for i in 1 2 3 4 5 6 7 8 9 10; do curl -fsS -m 2 -o /dev/null http://127.0.0.1:8080/ && curl -fsS -m 2 -o /dev/null http://127.0.0.1:9000/ && break; sleep 1; done
+          sudo ufw status verbose
+      - name: what Seaward says
+        run: |
+          set -x
+          sudo ./bin/seaward snapshot -o machine.snapshot
+          ./bin/seaward scan -f machine.snapshot | tee scan.txt
+          ./bin/seaward scan -f machine.snapshot --json > scan.json
+          ./bin/seaward why 8080 -f machine.snapshot | tee why.txt
+          finding() { jq -r --argjson p "$1" '.ports[] | select(.proto == "tcp" and .port == $p) | .finding' scan.json; }
+          test "$(finding 8080)" = exposed
+          test "$(finding 9000)" = blocked
+          ./bin/seaward scan -f machine.snapshot --check && exit 1 || test $? -eq 3
+      - name: what a real connection from outside does
+        run: |
+          set -eux
+          addr=$(ip -4 route get 192.0.2.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')
+          sudo ip netns add outside
+          sudo ip link add sw-host type veth peer name sw-out netns outside
+          sudo ip addr add 198.51.100.1/24 dev sw-host
+          sudo ip link set sw-host up
+          sudo ip -n outside link set lo up
+          sudo ip -n outside addr add 198.51.100.7/24 dev sw-out
+          sudo ip -n outside link set sw-out up
+          sudo ip -n outside route add default via 198.51.100.1
+          # the port ufw never allowed answers
+          sudo ip netns exec outside curl -fsS -m 5 "http://$addr:8080/" | grep -qi nginx
+          # the port ufw stops stays silent
+          if sudo ip netns exec outside curl -fsS -m 5 -o /dev/null "http://$addr:9000/"; then
+            echo "port 9000 answered from outside, yet ufw should stop it"; exit 1
+          fi
+      - name: summary
+        if: always()
+        run: |
+          {
+            echo '### A real machine: ufw on with default deny, Docker publishing port 8080'
+            echo
+            echo '```'
+            cat scan.txt 2>/dev/null || echo 'no report was written'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: machine-snapshot
+          path: |
+            machine.snapshot
+            scan.txt
+            why.txt
+
+  # A snapshot is read on whatever the reader has, so the tests run on macOS too before a
+  # macOS binary is published.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: vet and test
+        run: |
+          go vet ./...
+          go test -count=1 ./...
+      - name: a snapshot taken elsewhere reads here
+        run: |
+          go build -o seaward ./cmd/seaward
+          ./seaward scan -f samples/shop-1.snapshot
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: scan the history for secrets
+        run: |
+          docker run --rm -v "$PWD:/repo" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            ghcr.io/gitleaks/gitleaks:latest git /repo --no-banner --redact
