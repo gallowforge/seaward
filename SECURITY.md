@@ -38,7 +38,9 @@ It does not hold container environment variables, command lines, file contents, 
 container settings are where passwords live.
 
 Addresses and host names are in it. Treat a snapshot like a network diagram: fine to hand to a
-colleague, not something to paste in public.
+colleague, not something to paste in public. `seaward snapshot -o` writes the file readable by its
+owner alone. Taken with sudo, it belongs to the person who ran sudo, so the scan that follows needs
+no root.
 
 ## What could go wrong
 

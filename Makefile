@@ -9,7 +9,7 @@ LDFLAGS := -s -w -X github.com/gallowforge/seaward/internal/snapshot.Version=$(V
 TARGETS := linux/amd64 linux/arm64 darwin/arm64 darwin/amd64
 export CGO_ENABLED = 0
 
-.PHONY: all build test lab pages release shots
+.PHONY: all build test lab demo pages release shots
 
 all: build
 
@@ -27,11 +27,14 @@ lab:
 	go test -tags kernel ./internal/lab/ -run Kernel -count=1 -v
 
 # The page with the engine compiled for the browser. wasm_exec.js is Go's loader and has to come
-# from the Go that built the engine.
-pages:
+# from the Go that built the engine. `demo` is the page without its link card's picture, which is
+# one of the README's pictures and is itself taken from the running demo.
+demo:
 	cd web && npm ci --no-audit --no-fund && npm run build
 	GOOS=js GOARCH=wasm go build -trimpath -ldflags '$(LDFLAGS)' -o pages/seaward.wasm ./cmd/seaward-wasm
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" pages/wasm_exec.js
+
+pages: demo
 	cp docs/readme/social.png pages/social.png
 
 release:
@@ -41,5 +44,5 @@ release:
 	done
 	cd dist && sha256sum seaward-* > SHA256SUMS
 
-shots: build
-	cd docs/readme/src && npm ci --no-audit --no-fund && ./build.sh ../../../bin/seaward
+shots: build demo
+	cd docs/readme/src && npm ci --no-audit --no-fund && ./build.sh ../../../bin/seaward ../../../pages
