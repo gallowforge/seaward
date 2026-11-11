@@ -96,12 +96,17 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # The finding Seaward exists for, on a real machine: ufw is on with default deny, Docker
-  # publishes a port, and a connection from outside gets through to it all the same. Seaward
-  # has to say so, and a real connection from another network namespace has to agree.
+  # The finding Seaward exists for, on a real machine, once per firewall manager. The manager is
+  # on and allows ssh and port 9001; Docker publishes port 8080 and nobody allowed it. Seaward
+  # has to say that 8080 is exposed, that 9000 is stopped and that 9001 is open, and then a real
+  # connection from outside has to do the same on every one of them.
   machine:
-    name: a real machine, ufw on, Docker publishing past it
+    name: a real machine, ${{ matrix.firewall }} on, Docker publishing past it
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        firewall: [ufw, firewalld]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -109,33 +114,43 @@ jobs:
           go-version-file: go.mod
           cache: false
       - run: make build
-      - name: ufw on with default deny, one published container, one plain listener
+      - name: ufw on with default deny, allowing ssh and 9001
+        if: matrix.firewall == 'ufw'
         run: |
           set -eux
           command -v ufw >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ufw; }
           sudo ufw default deny incoming
           sudo ufw allow 22/tcp
+          sudo ufw allow 9001/tcp
           sudo ufw --force enable
+          sudo ufw status verbose
+      - name: firewalld on, allowing ssh and 9001
+        if: matrix.firewall == 'firewalld'
+        run: |
+          set -eux
+          sudo ufw disable || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq firewalld
+          sudo systemctl enable --now firewalld
+          sudo firewall-cmd --permanent --add-port=9001/tcp
+          sudo firewall-cmd --reload
+          # Docker puts its own rules back when it starts.
+          sudo systemctl restart docker
+          sudo firewall-cmd --version
+          sudo firewall-cmd --list-all
+      - name: one published container, two plain listeners, one sender outside
+        run: |
+          set -eux
           docker run -d --name web -p 8080:80 nginx:alpine
           mkdir -p /tmp/www && echo plain > /tmp/www/index.html
           nohup python3 -m http.server 9000 --bind 0.0.0.0 --directory /tmp/www >/dev/null 2>&1 &
-          for i in 1 2 3 4 5 6 7 8 9 10; do curl -fsS -m 2 -o /dev/null http://127.0.0.1:8080/ && curl -fsS -m 2 -o /dev/null http://127.0.0.1:9000/ && break; sleep 1; done
-          sudo ufw status verbose
-      - name: what Seaward says
-        run: |
-          set -x
-          sudo ./bin/seaward snapshot -o machine.snapshot
-          ./bin/seaward scan -f machine.snapshot | tee scan.txt
-          ./bin/seaward scan -f machine.snapshot --json > scan.json
-          ./bin/seaward why 8080 -f machine.snapshot | tee why.txt
-          finding() { jq -r --argjson p "$1" '.ports[] | select(.proto == "tcp" and .port == $p) | .finding' scan.json; }
-          test "$(finding 8080)" = exposed
-          test "$(finding 9000)" = blocked
-          ./bin/seaward scan -f machine.snapshot --check && exit 1 || test $? -eq 3
-      - name: what a real connection from outside does
-        run: |
-          set -eux
-          addr=$(ip -4 route get 192.0.2.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')
+          nohup python3 -m http.server 9001 --bind 0.0.0.0 --directory /tmp/www >/dev/null 2>&1 &
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fsS -m 2 -o /dev/null http://127.0.0.1:8080/ && curl -fsS -m 2 -o /dev/null http://127.0.0.1:9000/ &&
+              curl -fsS -m 2 -o /dev/null http://127.0.0.1:9001/ && break
+            sleep 1
+          done
+          # The outside: a network namespace of its own, reaching this machine over one cable.
           sudo ip netns add outside
           sudo ip link add sw-host type veth peer name sw-out netns outside
           sudo ip addr add 198.51.100.1/24 dev sw-host
@@ -144,17 +159,44 @@ jobs:
           sudo ip -n outside addr add 198.51.100.7/24 dev sw-out
           sudo ip -n outside link set sw-out up
           sudo ip -n outside route add default via 198.51.100.1
-          # the port ufw never allowed answers
-          sudo ip netns exec outside curl -fsS -m 5 "http://$addr:8080/" | grep -qi nginx
-          # the port ufw stops stays silent
-          if sudo ip netns exec outside curl -fsS -m 5 -o /dev/null "http://$addr:9000/"; then
-            echo "port 9000 answered from outside, yet ufw should stop it"; exit 1
-          fi
+      - name: what Seaward says
+        run: |
+          set -x
+          sudo ./bin/seaward snapshot -o machine.snapshot
+          ./bin/seaward scan -f machine.snapshot | tee scan.txt
+          ./bin/seaward scan -f machine.snapshot --json > scan.json
+          finding() { jq -r --argjson p "$1" '.ports[] | select(.proto == "tcp" and .port == $p) | .finding' scan.json; }
+          test "$(finding 8080)" = exposed
+          test "$(finding 9000)" = blocked
+          test "$(finding 9001)" = open
+          test "$(jq -r .frontend.tool scan.json)" = "${{ matrix.firewall }}"
+          ./bin/seaward scan -f machine.snapshot --check && exit 1 || test $? -eq 3
+          # The same three ports, for the one sender the next step really connects from.
+          for p in 8080 9000 9001; do
+            ./bin/seaward why "$p" --from 198.51.100.7 -f machine.snapshot | tee "why-$p.txt"
+          done
+          grep -q '^gets through' why-8080.txt
+          grep -q -E '^(dropped|refused)' why-9000.txt
+          grep -q '^gets through' why-9001.txt
+      - name: what a real connection from outside does
+        run: |
+          set -eux
+          addr=$(ip -4 route get 192.0.2.1 | sed -n 's/.* src \([0-9.]*\).*/\1/p')
+          for to in 198.51.100.1 "$addr"; do
+            # the port nobody allowed answers
+            sudo ip netns exec outside curl -fsS -m 5 "http://$to:8080/" | grep -qi nginx
+            # the port the firewall stops stays shut
+            if sudo ip netns exec outside curl -fsS -m 5 -o /dev/null "http://$to:9000/"; then
+              echo "port 9000 answered from outside, yet the firewall should stop it"; exit 1
+            fi
+            # the port the firewall allows answers
+            sudo ip netns exec outside curl -fsS -m 5 "http://$to:9001/" | grep -q plain
+          done
       - name: summary
         if: always()
         run: |
           {
-            echo '### A real machine: ufw on with default deny, Docker publishing port 8080'
+            echo '### A real machine: ${{ matrix.firewall }} on, Docker publishing port 8080'
             echo
             echo '```'
             cat scan.txt 2>/dev/null || echo 'no report was written'
@@ -163,11 +205,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: machine-snapshot
+          name: machine-${{ matrix.firewall }}
           path: |
             machine.snapshot
             scan.txt
-            why.txt
+            why-*.txt
 
   # A snapshot is read on whatever the reader has, so the tests run on macOS too before a
   # macOS binary is published. (Not while the repository is private: macOS minutes count tenfold there.)

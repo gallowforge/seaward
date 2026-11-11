@@ -12,12 +12,14 @@ The first release.
   VPN peers, one address range, nobody) and the rule or policy that decides it. Ports that are
   reachable although the firewall manager does not allow them come first.
 - **`seaward why PORT`**: one packet followed through the kernel's path rule by rule, from the
-  interface it arrives on to the program or container that answers.
+  interface it arrives on to the program or container that answers. `--from ADDR` follows a packet
+  from one sender.
 - **Reads what is really loaded**: iptables rules (nf_tables and legacy), native nftables with
   sets, maps and verdict maps, ipsets, Docker's chains and published ports, ufw and firewalld.
 - **Snapshots**: `seaward snapshot` saves what a scan reads as one text file, and
   `seaward snapshot --script` prints the collector as a shell script, so a server can be read
-  without installing anything on it. A snapshot reads on Linux and macOS.
+  without installing anything on it. A snapshot reads on Linux and macOS, and one taken with sudo
+  belongs to whoever ran sudo.
 - **Says when it does not know**: a rule beyond the model makes the port undecided, with the reason.
   Rules that could not be read (no root) decide nothing.
 - **`--check`** for CI and cron: exit status 3 when a port is exposed, 4 when something is undecided.
@@ -25,4 +27,7 @@ The first release.
 - **Checked against the real kernel**: 67 scenarios and 40 random rulesets are built in private
   network namespaces, real packets are sent through them, and the result is compared with the
   engine's answer on every change.
+- **Checked on whole machines**: on every change a CI machine turns ufw on, and another firewalld,
+  lets Docker publish a port neither allows, and compares what Seaward says with what real
+  connections from outside do.
 - **A live demo** that runs the engine in the browser on sample machines or a snapshot of your own.

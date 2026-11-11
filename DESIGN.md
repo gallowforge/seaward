@@ -275,6 +275,20 @@ it as it is.
    only"`, `"VPN peers only"`, `"the set admins only"`), `Port.Stated` what the firewall manager
    says, `Port.Why` the reason in a sentence, and `Port.Cells` every packet tried with all its steps.
 
+Three things about the firewall manager's side of it:
+
+- **A zone is said once.** firewalld's default zone covers every interface no other zone names, so
+  one opening arrives as one rule per interface. When those add up to every outside interface the
+  port is `allowed`, not "allowed only on eth0, on eth1 ...". An interface the owner wrote into a
+  ufw rule stays as written.
+- **Link-local and multicast openings are listed, not asked about.** firewalld's stock
+  `dhcpv6-client` service allows udp 546 to `fe80::/64`. The scan sends nothing to link-local or
+  multicast addresses, so that opening shows in the manager's list (`546/udp to fe80::/64`) and is
+  no reason to add a port to the report.
+- **A named sender arrives where the routes say.** `scan.Trace` (`seaward why PORT --from ADDR`)
+  follows one packet from one address, on whichever interface the routes give for it, including an
+  interface the scan leaves out as inside.
+
 ## The command line (`cmd/seaward`)
 
 `scan`, `why PORT[/PROTO]`, `snapshot -o FILE`, `snapshot --script`, `version`; `-f FILE` reads a
@@ -327,6 +341,16 @@ those as well.
 | `SEAWARD_LAB_KEEP=dir` | keep each scenario's script, snapshot and results |
 | `SEAWARD_LAB_SUMMARY=path` | write the totals as JSON |
 | `SEAWARD_LAB_TIMEOUT_MS` | how long a probe waits before it counts as silent (default 900) |
+
+### Whole machines
+
+The lab proves the engine on rulesets written for it. Two CI jobs prove the whole tool on a machine
+nobody wrote for it: a GitHub runner with ufw, then one with firewalld, each allowing ssh and port
+9001, with Docker publishing nginx on 8080 and plain listeners on 9000 and 9001. Seaward has to
+say `exposed`, `blocked` and `open` for the three, `--check` has to exit 3, `why --from` has to
+agree for the one outside sender, and then real connections from a namespace on the other end of a
+cable have to do the same. `internal/scan/testdata/firewalld-docker.snapshot` is the firewalld
+runner as the collector saw it, kept as a test.
 
 ### What the kernel taught
 

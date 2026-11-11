@@ -98,7 +98,16 @@ func Trace(rs *rules.Ruleset, h *host.Host, proto string, port uint16, from neti
 	iif, _ := b.e.IifFor(from)
 	var out []Cell
 	for _, in := range b.h.Interfaces {
-		if !in.Up || in.Loopback || b.inside(in) || (iif != "" && in.Name != iif) {
+		if !in.Up || in.Loopback {
+			continue
+		}
+		// A named sender arrives where the routes say it does, even on an interface the scan
+		// itself leaves out (a container's side of the machine).
+		if iif != "" {
+			if in.Name != iif {
+				continue
+			}
+		} else if b.inside(in) {
 			continue
 		}
 		v := &vantage{Vantage: Vantage{ID: "from:" + in.Name, Iface: in.Name, Scope: "world"}}
@@ -233,7 +242,7 @@ func (b *builder) candidates() []portKey {
 	}
 	if b.f != nil {
 		for _, r := range b.f.Rules {
-			if r.PortLo == 0 && r.PortHi == 0 {
+			if (r.PortLo == 0 && r.PortHi == 0) || offLink(r) {
 				continue
 			}
 			proto := r.Proto
@@ -275,10 +284,48 @@ func (b *builder) allowed(k portKey, src, dst netip.Addr, iface string) bool {
 	return b.f.DefaultIncoming == "allow"
 }
 
+// outsideIfaces names the interfaces a packet from outside can arrive on.
+func (b *builder) outsideIfaces() map[string]bool {
+	out := map[string]bool{}
+	for _, in := range b.h.Interfaces {
+		if in.Up && !in.Loopback && !b.inside(in) {
+			out[in.Name] = true
+		}
+	}
+	return out
+}
+
+// everywhere reports whether a zone's openings on these interfaces add up to every interface a
+// packet from outside can arrive on. firewalld's default zone takes every interface no other zone
+// names, so its list reads as one line per interface; said plainly, the port is simply allowed.
+func everywhere(outside, on map[string]bool) bool {
+	if len(outside) == 0 || len(on) == 0 {
+		return false
+	}
+	for i := range outside {
+		if !on[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// offLink reports whether a rule only covers packets addressed to a link-local or multicast
+// address (firewalld's dhcpv6-client and mdns services). The scan sends nothing there.
+func offLink(r host.FrontendRule) bool {
+	if !r.To.IsValid() {
+		return false
+	}
+	a := r.To.Addr()
+	return a.IsLinkLocalUnicast() || a.IsMulticast()
+}
+
 // stated is what the firewall manager says about a port, in a few words.
 func (b *builder) stated(k portKey) string {
 	var only []string
 	seen := map[string]bool{}
+	outside := b.outsideIfaces()
+	zoneOn := map[string]bool{}
 	for _, r := range b.f.Rules {
 		if (r.Proto != "" && r.Proto != k.proto) || (r.PortLo == 0 && r.PortHi == 0 && !r.From.IsValid() && r.Iface == "") {
 			continue
@@ -289,8 +336,19 @@ func (b *builder) stated(k portKey) string {
 		yes := r.Action == "allow" || r.Action == "limit"
 		limit := ""
 		switch {
+		case offLink(r):
+			limit = "to " + r.To.Masked().String()
 		case r.From.IsValid() && r.From.Bits() > 0:
 			limit = "from " + ival{r.From.Masked().Addr(), lastAddr(r.From)}.String()
+		case r.Iface != "" && r.Zone != "":
+			// A zone's interface: counted, and named only when the zone does not cover them all.
+			if yes && outside[r.Iface] {
+				zoneOn[r.Iface] = true
+			}
+			if !outside[r.Iface] && len(outside) > 0 {
+				continue
+			}
+			limit = "on " + r.Iface
 		case r.Iface != "":
 			limit = "on " + r.Iface
 		}
@@ -311,6 +369,9 @@ func (b *builder) stated(k portKey) string {
 		}
 		break
 	}
+	if everywhere(outside, zoneOn) {
+		return "allowed"
+	}
 	if len(only) > 0 {
 		return "allowed only " + list(only)
 	}
@@ -320,10 +381,31 @@ func (b *builder) stated(k portKey) string {
 	return "not allowed"
 }
 
-// allows is the manager's allow list, one short entry per opening.
+// allows is the manager's allow list, one short entry per opening. A zone's opening is named once,
+// with its interfaces only when the zone does not cover every interface facing outside.
 func (b *builder) allows() []string {
-	out := []string{}
-	seen := map[string]bool{}
+	type entry struct {
+		text string
+		zone bool
+		on   map[string]bool
+	}
+	var entries []*entry
+	byText := map[string]*entry{}
+	outside := b.outsideIfaces()
+	add := func(text, iface string, zone bool) {
+		if !zone && iface != "" {
+			text += " on " + iface
+		}
+		e := byText[text]
+		if e == nil {
+			e = &entry{text: text, zone: zone, on: map[string]bool{}}
+			byText[text] = e
+			entries = append(entries, e)
+		}
+		if zone && iface != "" {
+			e.on[iface] = true
+		}
+	}
 	for _, r := range b.f.Rules {
 		if r.Action != "allow" && r.Action != "limit" {
 			continue
@@ -343,12 +425,26 @@ func (b *builder) allows() []string {
 		if r.From.IsValid() && r.From.Bits() > 0 {
 			s += " from " + ival{r.From.Masked().Addr(), lastAddr(r.From)}.String()
 		}
-		if r.Iface != "" {
-			s += " on " + r.Iface
+		if offLink(r) {
+			s += " to " + r.To.Masked().String()
 		}
-		if !seen[s] {
-			seen[s] = true
-			out = append(out, s)
+		add(s, r.Iface, r.Zone != "")
+	}
+	out := []string{}
+	for _, e := range entries {
+		if !e.zone || len(e.on) == 0 || everywhere(outside, e.on) {
+			out = append(out, e.text)
+			continue
+		}
+		var on []string
+		for i := range e.on {
+			if outside[i] || len(outside) == 0 {
+				on = append(on, i)
+			}
+		}
+		sort.Strings(on)
+		for _, i := range on {
+			out = append(out, e.text+" on "+i)
 		}
 	}
 	return out

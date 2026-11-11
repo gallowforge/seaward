@@ -411,3 +411,66 @@ func TestText(t *testing.T) {
 }
 
 func render100(r *scan.Report) string { return scan.Text(r, scan.TextOptions{Color: true}) }
+
+// A real machine, as GitHub's runner image had it: firewalld on with its stock zones and port
+// 9001 opened, Docker publishing nginx on 8080, plain listeners on 9000 and 9001. Real
+// connections from 198.51.100.7 reached 8080 and 9001 and were refused on 9000.
+func TestFirewalldMachine(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "firewalld-docker.snapshot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := report(t, string(data))
+	eq(t, "headline", r.Headline, "3 ports can be reached from outside. firewalld allows only 2 of them.")
+	eq(t, "detail", r.Detail, "Docker publishes it with rules of its own, which never pass firewalld's list.")
+	for _, c := range []struct {
+		proto           string
+		port            uint16
+		finding, stated string
+	}{
+		{"tcp", 8080, scan.Exposed, "not allowed"},
+		{"tcp", 9000, scan.Blocked, "not allowed"},
+		{"tcp", 9001, scan.Open, "allowed"},
+		{"tcp", 22, scan.Open, "allowed"},
+	} {
+		p := port(t, r, c.proto, c.port)
+		if p == nil {
+			continue
+		}
+		eq(t, fmt.Sprintf("%s %d finding", c.proto, c.port), p.Finding, c.finding)
+		eq(t, fmt.Sprintf("%s %d stated", c.proto, c.port), p.Stated, c.stated)
+	}
+	for _, p := range r.Ports {
+		if p.Finding == scan.Undecided {
+			t.Errorf("%s %d is undecided", p.Proto, p.Port)
+		}
+		// firewalld opens udp 546 for link-local senders only; that is no port to ask about.
+		if p.Port == 546 {
+			t.Errorf("port 546 is in the report: %+v", p)
+		}
+	}
+	if r.Frontend == nil {
+		t.Fatal("no frontend in the report")
+	}
+	eq(t, "allows", strings.Join(r.Frontend.Allows, "; "), "9001/tcp; 546/udp to fe80::/64; 22/tcp")
+
+	// The sender the real connections came from sits on a veth, an interface the scan leaves out.
+	b, err := snapshot.Parse(string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, h, err := snapshot.Build(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := netip.MustParseAddr("198.51.100.7")
+	for _, c := range []struct {
+		port  uint16
+		class string
+	}{{8080, "open"}, {9000, "rejected"}, {9001, "open"}} {
+		cells := scan.Trace(rs, h, "tcp", c.port, from)
+		if len(cells) != 1 || cells[0].Class != c.class || cells[0].Dst != "198.51.100.1" {
+			t.Errorf("from %s to port %d: %+v, want one cell of class %s", from, c.port, cells, c.class)
+		}
+	}
+}
