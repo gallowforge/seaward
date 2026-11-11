@@ -170,8 +170,9 @@ jobs:
             why.txt
 
   # A snapshot is read on whatever the reader has, so the tests run on macOS too before a
-  # macOS binary is published.
+  # macOS binary is published. (Not while the repository is private: macOS minutes count tenfold there.)
   macos:
+    if: ${{ !github.event.repository.private }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
