@@ -659,3 +659,74 @@ func TestBroadcastAndMulticast(t *testing.T) {
 	want(t, Run(rs, h, bc), Filtered)
 	want(t, Run(nil, h, Probe{Src: ip("203.0.113.77"), Dst: ip("224.0.0.251"), Proto: "udp", Dport: 5353}), Undecided)
 }
+
+func TestAddrTypeOnInterface(t *testing.T) {
+	h := machine()
+	h.Interfaces = append(h.Interfaces, host.Interface{Name: "eth1", Up: true, Addrs: []netip.Prefix{netip.MustParsePrefix("10.20.0.1/24")}})
+	e := New(nil, h)
+	for _, c := range []struct {
+		addr, dev string
+		want      uint32
+	}{
+		{"203.0.113.10", "eth0", rules.AddrLocal},
+		{"203.0.113.10", "eth1", rules.AddrUnicast},
+		{"10.20.0.1", "eth1", rules.AddrLocal},
+		{"10.20.0.1", "eth0", rules.AddrUnicast},
+		{"10.20.0.255", "eth1", rules.AddrBroadcast},
+		{"10.20.0.255", "eth0", rules.AddrUnicast},
+		{"255.255.255.255", "eth0", rules.AddrBroadcast},
+		{"127.0.0.1", "lo", rules.AddrLocal},
+		{"127.0.0.1", "eth0", rules.AddrUnicast},
+		{"198.51.100.7", "eth0", rules.AddrUnicast},
+		{"224.0.0.1", "eth0", rules.AddrMulticast},
+		{"203.0.113.10", "nope0", rules.AddrUnicast},
+	} {
+		if got := e.addrTypeOn(netip.MustParseAddr(c.addr), c.dev); got != c.want {
+			t.Errorf("addrTypeOn(%s, %s) = %d, want %d", c.addr, c.dev, got, c.want)
+		}
+	}
+}
+
+func TestUnreadRulesDecideNothing(t *testing.T) {
+	h := machine(host.Listener{Proto: "tcp", Addr: netip.MustParseAddr("0.0.0.0"), Port: 22, Process: "sshd"})
+	drop := &rules.Table{Family: "ip", Name: "filter", Chains: map[string]*rules.Chain{
+		"INPUT": {Name: "INPUT", Base: true, Hook: rules.HookInput, Type: "filter", Policy: rules.Accept, Rules: []*rules.Rule{
+			rule("-p tcp --dport 23 -j DROP", rules.Eq(rules.FL4Proto, rules.Num(6)), rules.Eq(rules.FDport, rules.Num(23)), &rules.Verdict{Kind: rules.Drop}),
+		}},
+	}, Order: []string{"INPUT"}}
+	const why = "The nftables rules could not be read: nft needs root."
+
+	// Nothing unread: the walk decides.
+	rs := &rules.Ruleset{Tables: []*rules.Table{drop}}
+	if r := Run(rs, h, probe(world, me, 22)); r.Class != Open {
+		t.Fatalf("all read: %v, want open", r.Class)
+	}
+
+	// Unread for both families: open and filtered both become undecided, each naming what the
+	// read rules say first.
+	rs.Unread = []rules.Unread{{Why: why}}
+	r := Run(rs, h, probe(world, me, 22))
+	if r.Class != Undecided || len(r.Possible) != 2 || r.Possible[0] != Open || r.Possible[1] != Filtered {
+		t.Errorf("open with unread rules: %v %v", r.Class, r.Possible)
+	}
+	if len(r.Unknowns) == 0 || r.Unknowns[len(r.Unknowns)-1] != why {
+		t.Errorf("the reason is missing: %q", r.Unknowns)
+	}
+	r = Run(rs, h, probe(world, me, 23))
+	if r.Class != Undecided || len(r.Possible) != 2 || r.Possible[0] != Open || r.Possible[1] != Filtered {
+		t.Errorf("filtered with unread rules: %v %v", r.Class, r.Possible)
+	}
+	r = Run(rs, h, probe(world, me, 81))
+	if r.Class != Undecided || len(r.Possible) != 2 || r.Possible[0] != Closed || r.Possible[1] != Filtered {
+		t.Errorf("closed with unread rules: %v %v", r.Class, r.Possible)
+	}
+
+	// Unread for IPv6 only: IPv4 is still decided, IPv6 is not.
+	rs.Unread = []rules.Unread{{Family: "ip6", Why: why}}
+	if r := Run(rs, h, probe(world, me, 22)); r.Class != Open || len(r.Unknowns) != 0 {
+		t.Errorf("IPv4 with only IPv6 unread: %v %q", r.Class, r.Unknowns)
+	}
+	if r := Run(rs, h, probe("2001:db8:99::7", "2001:db8:1::10", 22)); r.Class != Undecided {
+		t.Errorf("IPv6 with IPv6 unread: %v", r.Class)
+	}
+}

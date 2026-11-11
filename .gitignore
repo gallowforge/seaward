@@ -1,0 +1,11 @@
+/bin/
+/dist/
+/pages/
+/web/node_modules/
+/web/public/samples/
+/web/public/seaward.wasm
+/web/public/wasm_exec.js
+/docs/readme/src/node_modules/
+/docs/readme/build/
+*.test
+coverage.out

@@ -128,12 +128,14 @@ func Script(sc *Scenario, opt ScriptOptions) string {
 	w(`# From here on everything runs inside the fresh namespace.`)
 	w(`set -eu`)
 	w(`[ -n "${LAB_OUT:-}" ] && [ -x "${LAB_HELPER:-}" ] || { echo 'lab: LAB_OUT and LAB_HELPER must be set' >&2; exit 96; }`)
+	w(`# Make every mount private first, so nothing mounted below can propagate to the host,`)
+	w(`# whatever unshare's default is.`)
+	w(`mount --make-rprivate /`)
 	w(`# A private /run gives this namespace its own xtables lock and its own /run/netns.`)
 	w(`mount -t tmpfs tmpfs /run`)
 	w(`ip link set lo up`)
-	w(`lab_pids=""`)
-	w(`lab_cleanup() { for p in $lab_pids; do kill "$p" 2>/dev/null || true; done; }`)
-	w(`trap lab_cleanup EXIT`)
+	w(`# Helpers are never killed by PID (a PID can be reused); each one dies with this shell`)
+	w(`# through its parent-death signal.`)
 	w(`lab_ready() {`)
 	w(`  i=0`)
 	w(`  until grep -q '^READY' "$1" 2>/dev/null; do`)
@@ -253,12 +255,10 @@ func Script(sc *Scenario, opt ScriptOptions) string {
 	w(`# Listeners: the test binary run again as a helper. A container always gets one, even with`)
 	w(`# nothing to open, because docker-net needs a process inside it.`)
 	w(`SEAWARD_LAB_HELPER=listen "$LAB_HELPER" "$LAB_OUT/listen-host.txt" >"$LAB_OUT/listen-host.out" 2>&1 &`)
-	w(`lab_pids="$lab_pids $!"`)
 	for i := 0; i < sc.Containers; i++ {
 		c := containers[i]
 		w(`SEAWARD_LAB_HELPER=listen ip netns exec %s "$LAB_HELPER" "$LAB_OUT/listen-%s.txt" >"$LAB_OUT/listen-%s.out" 2>&1 &`, c.NS, c.NS, c.NS)
 		w(`lab_pid_%s=$!`, c.NS)
-		w(`lab_pids="$lab_pids $!"`)
 	}
 	w(`lab_ready "$LAB_OUT/listen-host.out"`)
 	for i := 0; i < sc.Containers; i++ {

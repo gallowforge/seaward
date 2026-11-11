@@ -44,12 +44,15 @@ func (l *Launcher) Argv(script, outDir string) ([]string, error) {
 	}
 	env := []string{"SEAWARD_LAB_INSIDE=1", "LAB_OUT=" + outDir, "LAB_HELPER=" + l.Helper}
 	var argv []string
+	// timeout kills the shell itself, as whatever user it runs as, so a stuck script cannot
+	// outlive the test even under sudo, where the test cannot signal it; the helpers die with
+	// the shell. The Go context below is only the last backstop.
 	if l.Sudo {
 		// sudo drops the environment, so env carries the marker through it.
-		argv = append([]string{"sudo", "-n", "env"}, env...)
+		argv = append([]string{"sudo", "-n", "timeout", "-s", "KILL", scriptLimit, "env"}, env...)
 		argv = append(argv, "unshare", "-n", "-m", "sh", script)
 	} else {
-		argv = append([]string{"env"}, env...)
+		argv = append([]string{"timeout", "-s", "KILL", scriptLimit, "env"}, env...)
 		argv = append(argv, "unshare", "-Urnm", "sh", script)
 	}
 	if err := checkArgv(argv); err != nil {
@@ -57,6 +60,9 @@ func (l *Launcher) Argv(script, outDir string) ([]string, error) {
 	}
 	return argv, nil
 }
+
+// scriptLimit is how long one scenario script may run, in seconds; a scenario takes about one.
+const scriptLimit = "45"
 
 // checkArgv refuses any command line that does not start the shell through unshare with new
 // network and mount namespaces. It is the last gate before exec.
@@ -84,7 +90,7 @@ func checkArgv(argv []string) error {
 			net = true
 		case a == "--mount":
 			mnt = true
-		case strings.HasPrefix(a, "--"):
+		case strings.HasPrefix(a, "--") || strings.ContainsAny(a, "=/"):
 			return fmt.Errorf("lab: refusing unknown unshare option %q", a)
 		default:
 			net = net || strings.Contains(a, "n")
@@ -106,7 +112,6 @@ type Real struct {
 	Outcome Outcome `json:"outcome"`
 	Detail  string  `json:"detail,omitempty"`
 	MS      int64   `json:"ms"`
-	Tries   int     `json:"tries"` // always 1: see sendProbe
 }
 
 // Run is one scenario run in the kernel.
@@ -156,7 +161,11 @@ func (l *Launcher) RunScenario(ctx context.Context, sc *Scenario, dir string) *R
 	runErr := cmd.Run()
 	r.Log = out.String()
 	if runErr != nil {
-		r.Err = fmt.Errorf("scenario script failed: %v\n%s%s", runErr, r.Log, readTail(filepath.Join(dir, "listen-host.out")))
+		hint := ""
+		if strings.Contains(r.Log, "unshare:") && !l.Sudo {
+			hint = "hint: unprivileged user namespaces may be off here; on CI set SEAWARD_LAB_SUDO=1\n"
+		}
+		r.Err = fmt.Errorf("scenario script failed: %v\n%s%s%s", runErr, hint, r.Log, readTail(filepath.Join(dir, "listen-host.out")))
 		return r
 	}
 	if _, err := os.Stat(filepath.Join(dir, "done")); err != nil {
@@ -220,7 +229,7 @@ func interestingCounters(text string) string {
 	for _, line := range strings.Split(text, "\n") {
 		f := strings.Fields(line)
 		if len(f) >= 2 && f[0] == "#" && (f[1] == "host" || f[1] == "peer") {
-			b.WriteString(f[1] + ":")
+			b.WriteString(" " + f[1] + ":")
 			continue
 		}
 		if len(f) < 2 || f[1] == "0" {
@@ -234,5 +243,5 @@ func interestingCounters(text string) string {
 			}
 		}
 	}
-	return b.String()
+	return strings.TrimSpace(b.String())
 }

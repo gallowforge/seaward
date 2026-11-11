@@ -1,0 +1,159 @@
+table inet firewalld {
+	set office {
+		type ipv4_addr
+		flags interval
+		elements = { 192.0.2.0/24, 198.51.100.40 }
+	}
+
+	chain mangle_PREROUTING {
+		type filter hook prerouting priority mangle + 10; policy accept;
+		jump mangle_PREROUTING_ZONES
+	}
+
+	chain mangle_PREROUTING_ZONES {
+		ip saddr @office goto mangle_PRE_trusted
+		iifname "eth0" goto mangle_PRE_public
+		goto mangle_PRE_public
+	}
+
+	chain mangle_PRE_public {
+		jump mangle_PRE_public_allow
+	}
+
+	chain mangle_PRE_public_allow {
+	}
+
+	chain mangle_PRE_trusted {
+	}
+
+	chain nat_PREROUTING {
+		type nat hook prerouting priority dstnat + 10; policy accept;
+		jump nat_PREROUTING_ZONES
+	}
+
+	chain nat_PREROUTING_ZONES {
+		ip saddr @office goto nat_PRE_trusted
+		iifname "eth0" goto nat_PRE_public
+		goto nat_PRE_public
+	}
+
+	chain nat_PRE_public {
+		jump nat_PRE_public_allow
+	}
+
+	chain nat_PRE_public_allow {
+		meta nfproto ipv4 tcp dport 8080 redirect to :80
+		meta nfproto ipv4 tcp dport 2222 dnat ip to 192.0.2.5:22
+	}
+
+	chain nat_PRE_trusted {
+	}
+
+	chain nat_POSTROUTING {
+		type nat hook postrouting priority srcnat + 10; policy accept;
+		jump nat_POSTROUTING_ZONES
+	}
+
+	chain nat_POSTROUTING_ZONES {
+		oifname "eth0" goto nat_POST_public
+		goto nat_POST_public
+	}
+
+	chain nat_POST_public {
+		jump nat_POST_public_allow
+	}
+
+	chain nat_POST_public_allow {
+		meta nfproto ipv4 oifname != "lo" masquerade
+	}
+
+	chain filter_PREROUTING {
+		type filter hook prerouting priority filter + 10; policy accept;
+		icmpv6 type { nd-router-advert, nd-neighbor-solicit } accept
+		meta nfproto ipv6 fib saddr . mark . iif check missing drop
+	}
+
+	chain filter_INPUT {
+		type filter hook input priority filter + 10; policy accept;
+		ct state { established, related } accept
+		ct status dnat accept
+		iifname "lo" accept
+		ct state invalid drop
+		jump filter_INPUT_ZONES
+		reject with icmpx admin-prohibited
+	}
+
+	chain filter_FORWARD {
+		type filter hook forward priority filter + 10; policy accept;
+		ct state { established, related } accept
+		ct status dnat accept
+		iifname "lo" accept
+		ct state invalid drop
+		ip6 daddr { ::/96, ::ffff:0.0.0.0/96, 2002::/24, 2002:a00::/24, 2002:7f00::/24, 2002:a9fe::/32, 2002:ac10::/28, 2002:c0a8::/32, 2002:e000::/19 } reject with icmpv6 addr-unreachable
+		jump filter_FORWARD_ZONES
+		reject with icmpx admin-prohibited
+	}
+
+	chain filter_OUTPUT {
+		type filter hook output priority filter + 10; policy accept;
+		ct state { established, related } accept
+		oifname "lo" accept
+		ip6 daddr { ::/96, ::ffff:0.0.0.0/96, 2002::/24, 2002:a00::/24, 2002:7f00::/24, 2002:a9fe::/32, 2002:ac10::/28, 2002:c0a8::/32, 2002:e000::/19 } reject with icmpv6 addr-unreachable
+	}
+
+	chain filter_INPUT_ZONES {
+		ip saddr @office goto filter_IN_trusted
+		iifname "eth0" goto filter_IN_public
+		goto filter_IN_public
+	}
+
+	chain filter_IN_public {
+		jump filter_IN_public_pre
+		jump filter_IN_public_log
+		jump filter_IN_public_deny
+		jump filter_IN_public_allow
+		jump filter_IN_public_post
+		meta l4proto { icmp, ipv6-icmp } accept
+		reject with icmpx admin-prohibited
+	}
+
+	chain filter_IN_public_pre {
+	}
+
+	chain filter_IN_public_log {
+		ip saddr 198.51.100.0/24 tcp dport 3306 ct state { new, untracked } limit rate 3/minute burst 5 packets log prefix "'mysql '"
+	}
+
+	chain filter_IN_public_deny {
+		ip saddr 203.0.113.66 ct state { new, untracked } drop
+		icmp type echo-request reject with icmpx admin-prohibited
+	}
+
+	chain filter_IN_public_allow {
+		tcp dport 22 ct state { new, untracked } accept
+		ip6 daddr fe80::/64 udp dport 546 ct state { new, untracked } accept
+		tcp dport 8443 ct state { new, untracked } accept
+		udp dport 60000-61000 ct state { new, untracked } accept
+		ip saddr 198.51.100.0/24 tcp dport 3306 ct state { new, untracked } accept
+	}
+
+	chain filter_IN_public_post {
+	}
+
+	chain filter_IN_trusted {
+		accept
+	}
+
+	chain filter_FORWARD_ZONES {
+		iifname "eth0" goto filter_FWD_public
+		goto filter_FWD_public
+	}
+
+	chain filter_FWD_public {
+		jump filter_FWD_public_allow
+	}
+
+	chain filter_FWD_public_allow {
+		oifname "eth0" accept
+	}
+}

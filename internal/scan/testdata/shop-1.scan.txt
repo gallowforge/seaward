@@ -1,0 +1,69 @@
+seaward  shop-1
+
+7 ports can be reached from outside. ufw allows only 4 of them.
+Docker publishes the other 3 with rules of its own, which never pass ufw's list.
+
+EXPOSED  tcp 5432  postgres in container db (postgres:16)
+  Reachable from the internet. ufw does not allow it.
+  reached by  the internet (IPv4 only)
+  why         A rule in chain DOCKER of table nat sends it on to 172.18.0.2:5432,
+              container db. From there it is forwarded, not delivered to this
+              machine, so the INPUT chain, where ufw keeps its list, never sees it.
+  rewritten   nat DOCKER
+              -A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j DNAT --to-destination
+                172.18.0.2:5432
+  decided by  filter DOCKER
+              -A DOCKER -d 172.18.0.2/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp
+                --dport 5432 -j ACCEPT
+
+EXPOSED  tcp 6379  redis-server in container cache (redis:7)
+  Reachable from the internet. ufw does not allow it.
+  reached by  the internet (IPv4 only)
+  why         A rule in chain DOCKER of table nat sends it on to 172.18.0.3:6379,
+              container cache. From there it is forwarded, not delivered to this
+              machine, so the INPUT chain, where ufw keeps its list, never sees it.
+  rewritten   nat DOCKER
+              -A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 6379 -j DNAT --to-destination
+                172.18.0.3:6379
+  decided by  filter DOCKER
+              -A DOCKER -d 172.18.0.3/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp
+                --dport 6379 -j ACCEPT
+
+EXPOSED  tcp 8081  php in container adminer (adminer:4)
+  Reachable from the internet. ufw does not allow it.
+  reached by  the internet (IPv4 only)
+  why         A rule in chain DOCKER of table nat sends it on to 172.18.0.4:8080,
+              container adminer. From there it is forwarded, not delivered to this
+              machine, so the INPUT chain, where ufw keeps its list, never sees it.
+  rewritten   nat DOCKER
+              -A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 8081 -j DNAT --to-destination
+                172.18.0.4:8080
+  decided by  filter DOCKER
+              -A DOCKER -d 172.18.0.4/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp
+                --dport 8080 -j ACCEPT
+
+DEAD  tcp 8443
+  ufw allows it, and nothing is listening.
+  why         The firewall lets it through, but nothing is
+              listening on tcp port 8443 at 203.0.113.10.
+  decided by  filter ufw-user-input
+              -A ufw-user-input -p tcp -m tcp --dport 8443 -j ACCEPT
+
+           PORT      SERVICE          REACHED BY            UFW SAYS
+  open     tcp 22    sshd             the internet          allowed, with a rate limit
+  open     tcp 80    nginx            the internet          allowed
+  open     tcp 443   nginx            the internet          allowed
+  open     tcp 9100  node_exporter    198.51.100.0/24 only  allowed only from 198.51.100.0/24
+  blocked  tcp 111   rpcbind          nobody                not allowed
+  blocked  udp 111   rpcbind          nobody                not allowed
+  local    tcp 53    systemd-resolve  this machine only     not allowed
+  local    udp 53    systemd-resolve  this machine only     not allowed
+  local    tcp 8125  statsd           this machine only     not allowed
+
+seen from   the internet
+            the local network on eth0 (203.0.113.0/24, 2001:db8:1::/64)
+ufw allows  22/tcp, 80/tcp, 443/tcp, 9100/tcp from 198.51.100.0/24, 8443/tcp
+
+Read from this machine's own rules. Anything in front
+of it (a cloud firewall, a router) is not seen.
+To follow a packet rule by rule: seaward why 5432

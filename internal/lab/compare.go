@@ -97,11 +97,11 @@ func Judge(run *Run, record bool, predict Predictor) *Report {
 	}
 	sc := run.Scenario
 	for i, p := range sc.Probes {
-		real := run.Reals[i]
-		v := Verdict{Index: i, Probe: p, Real: real}
-		if real.Outcome == OutError {
+		got := run.Reals[i]
+		v := Verdict{Index: i, Probe: p, Real: got}
+		if got.Outcome == OutError {
 			v.WantMismatch = true
-		} else if p.Want != "" && p.Want != real.Outcome {
+		} else if p.Want != "" && p.Want != got.Outcome {
 			v.WantMismatch = true
 		}
 		rep.Verdicts = append(rep.Verdicts, v)
@@ -226,11 +226,11 @@ func FormatTable(reps []*Report) string {
 				continue
 			}
 			rows++
-			real := string(v.Real.Outcome)
+			did := string(v.Real.Outcome)
 			if v.Real.Detail != "" {
-				real += " (" + v.Real.Detail + ")"
+				did += " (" + v.Real.Detail + ")"
 			}
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", name, v.Probe, engineSaid(v), real, strings.Join(why, ", "))
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", name, v.Probe, engineSaid(v), did, strings.Join(why, ", "))
 			if v.Engine != nil && len(v.Engine.Steps) > 0 {
 				fmt.Fprintf(&steps, "%s  %s  (engine said %s, kernel did %s)\n", name, v.Probe, engineSaid(v), v.Real.Outcome)
 				for _, st := range v.Engine.Steps {

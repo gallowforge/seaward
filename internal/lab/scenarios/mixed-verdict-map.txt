@@ -1,0 +1,52 @@
+name: mixed-verdict-map
+about: An iptables-made filter table to which nft adds verdict maps: a named one ahead of an
+about: iptables accept, an anonymous one, and one with more of the rule after it. iptables-save
+about: prints a verdict map as a rule with no target ("-A INPUT -p tcp"), so port 9000 looks open
+about: when the map drops it first. The maps jump and go to WEB, a chain iptables made. A port the
+about: last map does not hold ends that rule; "continue" goes on to the source test after it.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:WEB - [0:0]
+-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 9000 -j ACCEPT
+-A WEB -s 198.51.100.0/24 -j ACCEPT
+-A WEB -p tcp -j REJECT --reject-with tcp-reset
+COMMIT
+--- nft
+table ip filter {
+	map svc {
+		type inet_service : verdict
+		elements = { 22 : accept, 80 : jump WEB, 443 : goto WEB, 9000 : drop }
+	}
+	chain INPUT {
+		udp dport vmap { 53 : accept, 123 : drop }
+		tcp dport vmap { 8080 : continue, 8081 : drop } ip saddr 198.51.100.0/24 accept
+	}
+}
+insert rule ip filter INPUT index 1 tcp dport vmap @svc
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+host tcp 0.0.0.0 8080
+host tcp 0.0.0.0 8081
+host tcp 0.0.0.0 8082
+host tcp 0.0.0.0 9000
+host udp 0.0.0.0 53
+host udp 0.0.0.0 123
+--- probes
+eth0 203.0.113.77 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 80 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 443 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 443 want:refused
+eth0 198.51.100.7 203.0.113.10 tcp 9000 want:silent
+eth0 203.0.113.77 203.0.113.10 udp 53 want:open
+eth0 203.0.113.77 203.0.113.10 udp 123 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 8080 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8081 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 8082 want:silent

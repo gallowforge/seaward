@@ -419,7 +419,22 @@ func (p *ruleParser) needProto(n uint32) {
 	}
 }
 
+// extHeader lists the matches that look for one IPv6 extension header (ah: also the IPv4 AH
+// protocol). Each of them fails when the header is not there, whatever its options say, and a
+// probe is a plain TCP or UDP packet with no extension headers.
+var extHeader = map[string]string{
+	"rt":   "a routing header",
+	"frag": "a fragment header",
+	"hbh":  "a hop-by-hop options header",
+	"dst":  "a destination options header",
+	"ah":   "an authentication header",
+}
+
 func (p *ruleParser) module(name string, toks []token) {
+	if what, ok := extHeader[name]; ok {
+		p.add(&rules.Never{What: "packets with " + what + " only (-m " + name + "): a plain connection attempt has none"})
+		return
+	}
 	arity, known := moduleArity[name]
 	if !known {
 		p.unknown("%s", unknownModule(name))
@@ -785,16 +800,33 @@ func (p *ruleParser) conntrack(opts []mopt) {
 }
 
 func (p *ruleParser) addrtype(opts []mopt) {
+	// With --limit-iface-in only the addresses of the arriving interface count.
+	onIif := false
 	for _, o := range opts {
-		if o.name == "limit-iface-in" || o.name == "limit-iface-out" {
-			p.unknown("the addrtype match with %s only counts the addresses of one interface, which seaward does not model", o.flag())
+		switch o.name {
+		case "limit-iface-in":
+			if p.family == "ip6" {
+				p.unknown("the addrtype match with %s only counts the addresses of the arriving interface, which seaward does not model for IPv6", o.flag())
+				return
+			}
+			onIif = true
+		case "limit-iface-out":
+			p.unknown("the addrtype match with %s only counts the addresses of the interface the packet leaves by, which seaward does not model", o.flag())
 			return
 		}
 	}
 	for _, o := range opts {
+		if o.name != "src-type" && o.name != "dst-type" {
+			continue
+		}
 		f := rules.FFibSaddrType
-		if o.name == "dst-type" {
+		switch {
+		case o.name == "dst-type" && onIif:
+			f = rules.FFibDaddrTypeIif
+		case o.name == "dst-type":
 			f = rules.FFibDaddrType
+		case onIif:
+			f = rules.FFibSaddrTypeIif
 		}
 		var atoms []rules.Atom
 		for _, s := range strings.Split(o.args[0], ",") {

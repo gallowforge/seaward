@@ -269,6 +269,22 @@ func (pt *pendingTable) finish(setDims map[string][]string, w walkFacts) {
 	}
 }
 
+// Incompatible lists the tables an iptables-save listing says it cannot show: tables holding
+// rules only the nft tool can list.
+func Incompatible(text string) []string {
+	var out []string
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(strings.TrimSuffix(raw, "\r"))
+		if !strings.HasPrefix(line, "#") {
+			continue
+		}
+		if name, ok := incompatibleTable(line); ok {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // incompatibleTable recognises both forms iptables-nft prints: "# Table `filter' is incompatible,
 // use 'nft' tool." and "# Table `filter' contains incompatible base-chains, use 'nft' tool to
 // list them.". Either way the text shows only part of the table.

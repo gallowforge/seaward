@@ -229,6 +229,37 @@ func (e *Engine) addrType(a netip.Addr) uint32 {
 	return rules.AddrUnicast
 }
 
+// addrTypeOn is addrType as one interface alone sees it. An address is local or broadcast there
+// only when that interface carries it; for an address of another interface the kernel answers
+// "unicast".
+func (e *Engine) addrTypeOn(a netip.Addr, dev string) uint32 {
+	a = a.Unmap()
+	t := e.addrType(a)
+	if t != rules.AddrLocal && t != rules.AddrBroadcast {
+		return t
+	}
+	if a == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+		return rules.AddrBroadcast
+	}
+	in := e.ifs[dev]
+	if in == nil {
+		return rules.AddrUnicast
+	}
+	if in.Loopback && (a.IsLoopback() || (a.Is4() && loop4.Contains(a))) {
+		return rules.AddrLocal
+	}
+	for _, p := range in.Addrs {
+		pa := p.Addr().Unmap()
+		if pa == a {
+			return rules.AddrLocal
+		}
+		if pa.Is4() && p.Bits() < 31 && lastAddr(netip.PrefixFrom(pa, p.Bits()).Masked()) == a {
+			return rules.AddrBroadcast
+		}
+	}
+	return rules.AddrUnicast
+}
+
 // route is the main table's answer for an address: the longest matching prefix.
 func (e *Engine) route(a netip.Addr) (host.Route, bool) {
 	a = a.Unmap()

@@ -1,0 +1,26 @@
+name: ipv6-extension-header-matches
+about: ufw's IPv6 rules begin by dropping packets that carry a type 0 routing header (-m rt).
+about: A match on an IPv6 extension header fails when the packet has no such header, whatever
+about: its options say, so an ordinary connection attempt walks past every one of these drops.
+--- ip6tables
+*filter
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m rt --rt-type 0 -j DROP
+-A INPUT -m rt -j DROP
+-A INPUT -m frag -j DROP
+-A INPUT -m hbh -j DROP
+-A INPUT -m dst -j DROP
+-A INPUT -m ah -j DROP
+-A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+-A INPUT -p udp -m udp --dport 53 -j ACCEPT
+COMMIT
+--- listen
+host tcp :: 22 dual
+host tcp :: 80 dual
+host udp :: 53 dual
+--- probes
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 22 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 udp 53 want:open
+eth0 2001:db8:99::7 2001:db8:1::10 tcp 80 want:silent

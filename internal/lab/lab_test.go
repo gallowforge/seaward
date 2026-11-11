@@ -72,7 +72,7 @@ func TestScriptStartsWithGuard(t *testing.T) {
 	}
 	// Right after the guard: private /run, then lo up.
 	after := rest[len(guard):]
-	if i, j := strings.Index(after, "mount -t tmpfs tmpfs /run"), strings.Index(after, "ip link set lo up"); i < 0 || j < i {
+	if p, i, j := strings.Index(after, "mount --make-rprivate /"), strings.Index(after, "mount -t tmpfs tmpfs /run"), strings.Index(after, "ip link set lo up"); p < 0 || i < p || j < i {
 		t.Error("the script does not mount a private /run before anything else")
 	}
 }
@@ -121,6 +121,7 @@ func TestLauncherRefusesWithoutUnshare(t *testing.T) {
 		{"unshare", "-Urnm", "bash", "/x/scenario.sh"},  // not sh
 		{"unshare", "-Urnm", "sh", "-c", "iptables -F"}, // not a script
 		{"unshare", "--fork", "-nm", "sh", "/x/scenario.sh"},
+		{"unshare", "-Urnm/tmp/x", "sh", "/x/scenario.sh"},
 		{"sh", "-c", "unshare -Urnm sh /x/scenario.sh"},
 		{"/bin/sh", "unshare", "-Urnm", "sh", "/x/s.sh"},
 		{},
@@ -138,9 +139,12 @@ func TestLauncherRefusesWithoutUnshare(t *testing.T) {
 		}
 		joined := strings.Join(argv, " ")
 		want := "unshare -Urnm sh /x/scenario.sh"
+		if !sudo && argv[0] != "timeout" {
+			t.Errorf("argv %q does not start with timeout", joined)
+		}
 		if sudo {
 			want = "unshare -n -m sh /x/scenario.sh"
-			if argv[0] != "sudo" || argv[1] != "-n" {
+			if argv[0] != "sudo" || argv[1] != "-n" || argv[2] != "timeout" {
 				t.Errorf("sudo argv %q does not start with sudo -n", joined)
 			}
 		}
@@ -186,20 +190,21 @@ func TestParseScenarioRoundTrip(t *testing.T) {
 func TestParseScenarioErrors(t *testing.T) {
 	head := "name: x\n--- probes\n"
 	bad := map[string]string{
-		"no name":         "--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
-		"no probes":       "name: x\n",
-		"bad block":       "name: x\n--- rules\n",
-		"bad source":      head + "eth0 8.8.8.8 203.0.113.10 tcp 22\n",
-		"eth1 source":     head + "eth1 198.51.100.7 10.20.0.1 tcp 22\n",
-		"mixed families":  head + "eth0 198.51.100.7 2001:db8:1::10 tcp 22\n",
-		"loopback dst":    head + "eth0 198.51.100.7 127.0.0.1 tcp 22\n",
-		"bad want":        head + "eth0 198.51.100.7 203.0.113.10 tcp 22 want:maybe\n",
-		"bad iif":         head + "eth9 198.51.100.7 203.0.113.10 tcp 22\n",
-		"shell in sysctl": "name: x\nsysctl: net.a=1;reboot\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
-		"shell in name":   "name: x$(id)\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
-		"ctr w/o ctr":     "name: x\n--- listen\nctr tcp 0.0.0.0 80\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
-		"quote publish":   "name: x\npublish: 0.0.0.0:1->2/tcp'\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
-		"dual on v4":      "name: x\n--- listen\nhost tcp 0.0.0.0 80 dual\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
+		"no name":          "--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
+		"no probes":        "name: x\n",
+		"bad block":        "name: x\n--- rules\n",
+		"bad source":       head + "eth0 8.8.8.8 203.0.113.10 tcp 22\n",
+		"eth1 source":      head + "eth1 198.51.100.7 10.20.0.1 tcp 22\n",
+		"mixed families":   head + "eth0 198.51.100.7 2001:db8:1::10 tcp 22\n",
+		"loopback dst":     head + "eth0 198.51.100.7 127.0.0.1 tcp 22\n",
+		"bad want":         head + "eth0 198.51.100.7 203.0.113.10 tcp 22 want:maybe\n",
+		"bad iif":          head + "eth9 198.51.100.7 203.0.113.10 tcp 22\n",
+		"host-wide sysctl": "name: x\nsysctl: net.core.somaxconn=1\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
+		"shell in sysctl":  "name: x\nsysctl: net.a=1;reboot\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
+		"shell in name":    "name: x$(id)\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
+		"ctr w/o ctr":      "name: x\n--- listen\nctr tcp 0.0.0.0 80\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
+		"quote publish":    "name: x\npublish: 0.0.0.0:1->2/tcp'\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
+		"dual on v4":       "name: x\n--- listen\nhost tcp 0.0.0.0 80 dual\n--- probes\neth0 198.51.100.7 203.0.113.10 tcp 22\n",
 	}
 	for what, text := range bad {
 		if _, err := ParseScenario("t.txt", text); err == nil {
@@ -442,5 +447,12 @@ func TestReplyOOB(t *testing.T) {
 	}
 	if want := []byte{0, 0, 0, 0, 203, 0, 113, 10, 0, 0, 0, 0}; !reflect.DeepEqual(msgs[0].Data[:12], want) {
 		t.Errorf("reply pktinfo %v, want %v", msgs[0].Data, want)
+	}
+}
+
+func TestInterestingCounters(t *testing.T) {
+	in := "# host\n#kernel\nIcmpOutRateLimitGlobal 1 0.0\nIcmpOutDestUnreachs 0 0.0\nUdpNoPorts 3 0.0\nTcpActiveOpens 9 0.0\n# peer\n#kernel\nIcmpInDestUnreachs 2 0.0\n"
+	if got, want := interestingCounters(in), "host: IcmpOutRateLimitGlobal=1 UdpNoPorts=3 peer: IcmpInDestUnreachs=2"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

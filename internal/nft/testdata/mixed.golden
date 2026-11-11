@@ -1,0 +1,130 @@
+table ip filter (iptables)
+  chain INPUT: filter hook input priority 0 policy drop
+    -A INPUT -i lo -j ACCEPT
+        match iif in {"lo"}
+        accept
+    -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        match ctstate in {4, 2}
+        accept
+    -A INPUT -m conntrack --ctstate INVALID -j DROP
+        match ctstate in {1}
+        drop
+    -A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+        match l4proto in {6}
+        match dport in {22}
+        accept
+    -A INPUT -s 198.51.100.0/24 -p tcp -m multiport --dports 80,443 -j web
+        match saddr in {198.51.100.0/24}
+        match l4proto in {6}
+        match dport in {80, 443}
+        jump web
+    -A INPUT -p icmp -m icmp --icmp-type 8 -j ACCEPT
+        match l4proto in {1}
+        match icmp-type in {8}
+        accept
+    -A INPUT -p udp -m udp --dport 53 -m comment --comment "resolver for the office" -j ACCEPT
+        match l4proto in {17}
+        match dport in {53}
+        always (comment: resolver for the office)
+        accept
+    -A INPUT -p tcp -m tcp --dport 8443 --tcp-flags FIN,SYN,RST,ACK SYN -m limit --limit 10/sec -j ACCEPT
+        match l4proto in {6}
+        match dport in {8443}
+        match tcpflags&0x17 in {2}
+        always (rate limit (-m limit): its burst lets a first packet through)
+        accept
+    -A INPUT -p tcp -m tcp --dport 9100 -j REJECT --reject-with tcp-reset
+        match l4proto in {6}
+        match dport in {9100}
+        reject
+    tcp dport { 25, 587 } accept
+        match l4proto in {6}
+        match dport in {25, 587}
+        accept
+    ip saddr @trusted tcp dport 3306 accept
+        match saddr in @ip/filter/trusted
+        match l4proto in {6}
+        match dport in {3306}
+        accept
+    tcp dport vmap @svc
+        match l4proto in {6}
+        vmap dport @ip/filter/svc
+    ip saddr . tcp dport { 198.51.100.7 . 9000, 192.0.2.0/24 . 9001-9010 } accept
+        match l4proto in {6}
+        match saddr . dport in {198.51.100.7 . 9000, 192.0.2.0/24 . 9001-9010}
+        accept
+    iifname { "docker0", "eth1" } udp dport 123 accept
+        match iif in {"docker0", "eth1"}
+        match l4proto in {17}
+        match dport in {123}
+        accept
+    udp dport vmap { 161 : accept, 162 : drop }
+        match l4proto in {17}
+        vmap dport {161 : accept, 162 : drop}
+    -A INPUT -p tcp -m tcp --dport 2000:2100 -j guard
+        match l4proto in {6}
+        match dport in {2000-2100}
+        jump guard
+    ip saddr 198.51.100.8 ip saddr 198.51.100.9 tcp dport 4000 accept
+        match saddr in {198.51.100.8}
+        match saddr in {198.51.100.9}
+        match l4proto in {6}
+        match dport in {4000}
+        accept
+    -A INPUT -s 203.0.113.0/24 -p tcp -m tcp --dport 4001 -m comment --comment "plain rule made with nft" -j ACCEPT
+        match saddr in {203.0.113.0/24}
+        match l4proto in {6}
+        match dport in {4001}
+        always (comment: plain rule made with nft)
+        accept
+    -A INPUT -i eth1 -p tcp -m tcp --dport 4002 -j ACCEPT
+        match iif in {"eth1"}
+        match l4proto in {6}
+        match dport in {4002}
+        accept
+    -A INPUT -j extra
+        jump extra
+  chain FORWARD: filter hook forward priority 0 policy drop
+    -A FORWARD -i eth1 -o eth0 -j ACCEPT
+        match iif in {"eth1"}
+        match oif in {"eth0"}
+        accept
+    -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        match ctstate in {4, 2}
+        accept
+  chain OUTPUT: filter hook output priority 0 policy accept
+  chain web
+    -A web -s 198.51.100.66/32 -j DROP
+        match saddr in {198.51.100.66}
+        drop
+    -A web -j ACCEPT
+        accept
+  chain guard
+    -A guard -p tcp -m tcp --dport 2000:2100 -j RETURN
+        match l4proto in {6}
+        match dport in {2000-2100}
+        return
+    -A guard -j DROP
+        drop
+  chain extra
+    -A extra -s 203.0.113.99/32 -j DROP
+        match saddr in {203.0.113.99}
+        drop
+    -A extra -p tcp -m tcp --dport 3000 -j ACCEPT
+        match l4proto in {6}
+        match dport in {3000}
+        accept
+table ip nat (iptables)
+  chain PREROUTING: nat hook prerouting priority -100 policy accept
+    -A PREROUTING -i eth0 -p tcp -m tcp --dport 8080 -j DNAT --to-destination 172.17.0.2:80
+        match iif in {"eth0"}
+        match l4proto in {6}
+        match dport in {8080}
+        dnat 172.17.0.2 port 80
+  chain POSTROUTING: nat hook postrouting priority 100 policy accept
+    -A POSTROUTING -s 172.17.0.0/16 -o eth0 -j MASQUERADE
+        match saddr in {172.17.0.0/16}
+        match oif in {"eth0"}
+        noop (masquerade (MASQUERADE))
+set @ip/filter/svc {5432 : accept, 6379 : drop, 7000 : jump guard}
+set @ip/filter/trusted {192.0.2.0/24, 198.51.100.7}

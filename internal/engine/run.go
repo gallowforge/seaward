@@ -22,7 +22,39 @@ func Run(rs *rules.Ruleset, h *host.Host, p Probe) Result {
 
 // Run walks one probe. Where a condition cannot be decided it walks both answers; the result
 // stands when every way through ends the same.
+//
+// When some of the machine's rules for the packet's family could not be read, nothing is decided:
+// a rule nobody read may stop a packet the known rules let through, or send one they stop
+// somewhere else first.
 func (e *Engine) Run(p Probe) Result {
+	r := e.run(p)
+	fam := "ip"
+	if p.Dst.Unmap().Is6() {
+		fam = "ip6"
+	}
+	var unread []string
+	for _, u := range e.rs.Unread {
+		if u.Family == "" || u.Family == fam {
+			unread = append(unread, u.Why)
+		}
+	}
+	if len(unread) == 0 {
+		return r
+	}
+	switch r.Class {
+	case Undecided:
+	case Filtered, Rejected:
+		r.Possible = []Class{Open, r.Class}
+		r.Class = Undecided
+	default:
+		r.Possible = []Class{r.Class, Filtered}
+		r.Class = Undecided
+	}
+	r.Unknowns = append(append([]string(nil), r.Unknowns...), unread...)
+	return r
+}
+
+func (e *Engine) run(p Probe) Result {
 	var all []Result
 	var whys []string
 	seen := map[string]bool{}
@@ -248,7 +280,7 @@ func (w *walker) walk(pr Probe) Result {
 	p.origDst, p.origDport = p.dst, p.dport
 	var ok bool
 	if p.proto, ok = protoNum(pr.Proto); !ok {
-		w.stop = "the model follows tcp and udp, not " + pr.Proto
+		w.stop = "the model does not follow the protocol " + pr.Proto
 		return w.result(Undecided)
 	}
 	if !p.src.IsValid() || !p.dst.IsValid() || p.src.Is6() != p.v6 {
@@ -630,6 +662,10 @@ func (w *walker) field(f rules.Field) (value, bool) {
 		return num(w.e.addrType(p.dst))
 	case rules.FFibSaddrType:
 		return num(w.e.addrType(p.src))
+	case rules.FFibDaddrTypeIif:
+		return num(w.e.addrTypeOn(p.dst, p.iif))
+	case rules.FFibSaddrTypeIif:
+		return num(w.e.addrTypeOn(p.src, p.iif))
 	case rules.FRpfOK:
 		dev, ok := w.e.IifFor(p.src)
 		return flag(ok && dev == p.iif)
@@ -852,9 +888,7 @@ func (w *walker) deliverForward() Result {
 		w.step(StepDeliver, nil, "", "handed on to "+hostPort(p.dst, p.dport)+" through "+p.oif)
 		return w.result(Forwarded)
 	}
-	socks, looked := w.e.socks[c.ID]
-	_ = socks
-	if !looked {
+	if _, looked := w.e.socks[c.ID]; !looked {
 		w.step(StepDeliver, nil, "", "handed to container "+c.Name+" at "+hostPort(p.dst, p.dport)+"; what listens inside it was not captured")
 		r := w.result(Forwarded)
 		r.Container = c

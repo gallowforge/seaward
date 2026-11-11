@@ -13,6 +13,16 @@ type Ruleset struct {
 	Sets map[string]*Set
 	// Notes are things a parser saw and could not represent (a table family it skips, a flowtable).
 	Notes []string
+	// Unread lists the rule sources that exist on the machine and could not be read (no root, a
+	// listing that would not parse). Rules nobody read may stop or redirect anything, so the engine
+	// decides nothing for a family while one of its sources is unread.
+	Unread []Unread
+}
+
+// Unread is one rule source that could not be read.
+type Unread struct {
+	Family string // "ip" or "ip6" when only that family's rules are missing; "" for both
+	Why    string // one plain sentence
 }
 
 // SetKey is the key of a named set in Ruleset.Sets.
@@ -86,6 +96,10 @@ const (
 	FICMPType                      // ICMP type (v4)
 	FICMPv6Type                    // ICMPv6 type
 	FIPSecIn                       // 1 when the packet arrived through IPsec, else 0
+	// The address type as the arriving interface alone sees it: an address of another interface
+	// of this machine is unicast there (addrtype --limit-iface-in, "fib daddr . iif type").
+	FFibDaddrTypeIif
+	FFibSaddrTypeIif
 )
 
 // Connection states for FCtState. A probe is always the first packet of a connection: CtNew.

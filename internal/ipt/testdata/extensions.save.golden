@@ -187,7 +187,7 @@ table ip filter (iptables)
     -A web -m cgroup --path "user.slice"
       unknown: the cgroup match (-m cgroup) looks at which group of local programs the packet belongs to, which seaward does not model
     -A web -m addrtype --dst-type LOCAL --limit-iface-in
-      unknown: the addrtype match with --limit-iface-in only counts the addresses of one interface, which seaward does not model
+      match daddr-type-on-iif in {2}
     -A web -m pkttype --pkt-type multicast
       match pkttype in {2}
     -A web -j AUDIT --type drop

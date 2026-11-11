@@ -1,0 +1,131 @@
+table inet filter {
+	set allowed4 {
+		type ipv4_addr
+		flags interval
+		elements = { 198.51.100.0/25, 192.0.2.50, 192.0.2.100-192.0.2.120 }
+	}
+	set allowed6 {
+		type ipv6_addr
+		elements = { 2001:db8:99::7 }
+	}
+	set svc {
+		type inet_proto . inet_service
+		elements = { tcp . 443, udp . 53 }
+	}
+	set pairs {
+		type ipv4_addr . inet_service
+		flags interval
+		elements = { 198.51.100.0/24 . 8000-8100, 192.0.2.7 . 22 }
+	}
+	set seen {
+		type ipv4_addr
+		flags dynamic,timeout
+		timeout 1m
+	}
+	set ifs {
+		type ifname
+		elements = { "eth0", "eth1" }
+	}
+	map ports {
+		type inet_service : verdict
+		elements = { 22 : accept, 80 : drop, 443 : jump web, 8080 : goto web }
+	}
+	map portmap {
+		type inet_service : ipv4_addr
+		elements = { 8080 : 172.17.0.2 }
+	}
+	chain web {
+		ip saddr 198.51.100.0/24 accept
+		ip saddr 192.0.2.0/24 reject with tcp reset
+		return
+	}
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state established,related accept
+		ct state invalid drop
+		ct state vmap { established : accept, related : accept, invalid : drop }
+		iif "lo" accept
+		iifname "eth*" tcp dport 22 accept
+		iifname != "eth0" tcp dport 7070 accept
+		iifname { "eth0", "eth1" } udp dport 53 accept
+		iifname @ifs udp dport 5353 accept
+		ip saddr @allowed4 tcp dport 22 accept
+		ip6 saddr @allowed6 tcp dport 22 accept
+		meta l4proto . th dport @svc accept
+		ip saddr . tcp dport @pairs accept
+		ip saddr . tcp dport { 198.51.100.7 . 25, 192.0.2.0/24 . 100-200 } accept
+		tcp dport { 80, 8000-8100 } accept
+		tcp dport != { 1, 2 } counter
+		ip saddr != @allowed4 tcp dport 9000 accept
+		tcp dport vmap @ports
+		udp dport vmap { 53 : accept, 123 : drop }
+		meta l4proto { tcp, udp } th dport 53 accept
+		meta nfproto ipv4 tcp dport 81 accept
+		meta l4proto tcp accept
+		ip protocol icmp accept
+		ip6 nexthdr icmpv6 accept
+		icmp type echo-request accept
+		icmpv6 type { nd-neighbor-solicit, nd-router-advert } accept
+		meta mark 0x1 accept
+		meta mark & 0xff == 0x10 accept
+		ct mark 0x2 accept
+		fib daddr type local accept
+		fib saddr . iif oif missing drop
+		fib daddr . iif type != { local, broadcast, multicast } drop
+		meta pkttype broadcast drop
+		tcp flags syn tcp dport 99 accept
+		tcp flags & (fin | syn | rst | ack) == syn accept
+		limit rate 10/second accept
+		limit rate over 10/second drop
+		ct count over 5 drop
+		tcp dport 23 log prefix "telnet " drop
+		tcp dport 24 counter reject
+		tcp dport 25 reject with icmp type host-unreachable
+		tcp dport 26 reject with icmpx type admin-prohibited
+		tcp dport 27 reject with tcp reset
+		ip saddr 203.0.113.0/24 ip daddr 203.0.113.10 accept
+		ip saddr 198.51.100.1-198.51.100.9 accept
+		ip daddr != 203.0.113.10 drop
+		ip6 saddr 2001:db8::/32 accept
+		tcp sport 1024-65535 tcp dport 30 accept
+		tcp dport 31 add @seen { ip saddr } accept
+		tcp dport 32 meter m1 { ip saddr limit rate 10/second } accept
+		meta nftrace set 1
+		ct status dnat accept
+		ct direction original accept
+		ct original proto-dst 80 accept
+		ip daddr 203.0.113.10 tcp dport 40 accept comment "a comment here"
+		jump web
+		goto web
+	}
+	chain pre {
+		type filter hook prerouting priority raw; policy accept;
+		tcp dport 50 notrack
+		meta mark set 0x5
+		meta mark set meta mark & 0xffffff00 | 0x12
+		meta mark set meta mark | 0x100
+		meta mark set ct mark
+		ct mark set meta mark
+		ct mark set 0x7
+		ct mark set ct mark & 0xff00 | 0x1
+	}
+	chain nat_pre {
+		type nat hook prerouting priority dstnat; policy accept;
+		tcp dport 8080 dnat ip to 203.0.113.10:22
+		tcp dport 8081 dnat ip to 172.17.0.2
+		tcp dport 8082 dnat ip6 to [2001:db8::5]:80
+		tcp dport 2200 redirect to :22
+		tcp dport 2201 redirect
+		dnat ip to tcp dport map @portmap
+		tcp dport 8083 dnat ip to 172.17.0.2-172.17.0.9:80-90
+	}
+	chain nat_post {
+		type nat hook postrouting priority srcnat; policy accept;
+		oifname "eth0" masquerade
+		ip saddr 172.17.0.0/16 snat ip to 203.0.113.10
+	}
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		oifname "docker0" ip daddr 172.17.0.2 tcp dport 80 accept
+	}
+}

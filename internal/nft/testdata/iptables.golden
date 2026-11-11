@@ -1,0 +1,422 @@
+table ip raw (iptables)
+  chain PREROUTING: filter hook prerouting priority -300 policy accept
+    -A PREROUTING -p tcp -m tcp --dport 50 -j NOTRACK
+        match l4proto in {6}
+        match dport in {50}
+        notrack
+    -A PREROUTING -p udp -m udp --dport 51 -j CT --notrack
+        match l4proto in {17}
+        match dport in {51}
+        notrack
+    -A PREROUTING -i eth0 -j TRACE
+        match iif in {"eth0"}
+        noop (trace (TRACE))
+  chain OUTPUT: filter hook output priority -300 policy accept
+table ip mangle (iptables)
+  chain PREROUTING: filter hook prerouting priority -150 policy accept
+    -A PREROUTING -p tcp -m tcp --dport 60 -j MARK --set-xmark 0x5/0xffffffff
+        match l4proto in {6}
+        match dport in {60}
+        mark = (mark & 0x0) ^ 0x5
+    -A PREROUTING -p tcp -m tcp --dport 61 -j MARK --set-xmark 0x10/0xff
+        match l4proto in {6}
+        match dport in {61}
+        mark = (mark & 0xffffff00) ^ 0x10
+    -A PREROUTING -p tcp -m tcp --dport 62 -j CONNMARK --save-mark --nfmask 0xffffffff --ctmask 0xffffffff
+        match l4proto in {6}
+        match dport in {62}
+        ctmark <- mark, mask 0xffffffff
+    -A PREROUTING -p tcp -m tcp --dport 63 -j CONNMARK --restore-mark --nfmask 0xffffffff --ctmask 0xffffffff
+        match l4proto in {6}
+        match dport in {63}
+        mark <- ctmark, mask 0xffffffff
+    -A PREROUTING -p tcp -m tcp --dport 64 -j CONNMARK --set-xmark 0x7/0xffffffff
+        match l4proto in {6}
+        match dport in {64}
+        ctmark = (ctmark & 0x0) ^ 0x7
+  chain INPUT: filter hook input priority -150 policy accept
+  chain FORWARD: filter hook forward priority -150 policy accept
+  chain OUTPUT: route hook output priority -150 policy accept
+  chain POSTROUTING: filter hook postrouting priority -150 policy accept
+table ip nat (iptables)
+  chain PREROUTING: nat hook prerouting priority -100 policy accept
+    -A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER
+        match daddr-type in {2}
+        jump DOCKER
+    -A PREROUTING -p tcp -m tcp --dport 8080 -j DNAT --to-destination 172.17.0.2:80
+        match l4proto in {6}
+        match dport in {8080}
+        dnat 172.17.0.2 port 80
+    -A PREROUTING -p tcp -m tcp --dport 8081 -j REDIRECT --to-ports 22
+        match l4proto in {6}
+        match dport in {8081}
+        redirect port 22
+  chain INPUT: nat hook input priority 100 policy accept
+  chain OUTPUT: nat hook output priority -100 policy accept
+  chain POSTROUTING: nat hook postrouting priority 100 policy accept
+    -A POSTROUTING -s 172.17.0.0/16 ! -o docker0 -j MASQUERADE
+        match saddr in {172.17.0.0/16}
+        match oif not in {"docker0"}
+        noop (masquerade (MASQUERADE))
+    -A POSTROUTING -o eth0 -j SNAT --to-source 203.0.113.10
+        match oif in {"eth0"}
+        noop (source NAT (SNAT))
+  chain DOCKER
+    -A DOCKER -i docker0 -j RETURN
+        match iif in {"docker0"}
+        return
+    -A DOCKER ! -i docker0 -p tcp -m tcp --dport 8443 -j DNAT --to-destination 172.17.0.3:443
+        match iif not in {"docker0"}
+        match l4proto in {6}
+        match dport in {8443}
+        dnat 172.17.0.3 port 443
+table ip filter (iptables)
+  chain INPUT: filter hook input priority 0 policy drop
+    -A INPUT -j ACCEPT
+        accept
+    -A INPUT -s 198.51.100.7/32 -j ACCEPT
+        match saddr in {198.51.100.7}
+        accept
+    -A INPUT -s 198.51.100.0/24 -j ACCEPT
+        match saddr in {198.51.100.0/24}
+        accept
+    -A INPUT ! -s 198.51.100.0/24 -j DROP
+        match saddr not in {198.51.100.0/24}
+        drop
+    -A INPUT -d 203.0.113.10/32 -j ACCEPT
+        match daddr in {203.0.113.10}
+        accept
+    -A INPUT ! -d 203.0.113.10/32 -j DROP
+        match daddr not in {203.0.113.10}
+        drop
+    -A INPUT -s 198.51.0.0/255.255.0.255 -j ACCEPT
+        UNKNOWN the source address 198.51.0.0/255.255.0.255 has a mask with gaps in it, which seaward cannot represent
+        accept
+    -A INPUT -i lo -j ACCEPT
+        match iif in {"lo"}
+        accept
+    -A INPUT -i eth+ -j ACCEPT
+        match iif in {"eth"*}
+        accept
+    -A INPUT ! -i eth0 -j ACCEPT
+        match iif not in {"eth0"}
+        accept
+    -A INPUT ! -i eth+ -j ACCEPT
+        match iif not in {"eth"*}
+        accept
+    -A INPUT -p tcp -j ACCEPT
+        match l4proto in {6}
+        accept
+    -A INPUT ! -p tcp -j ACCEPT
+        match l4proto not in {6}
+        accept
+    -A INPUT -p udp -j ACCEPT
+        match l4proto in {17}
+        accept
+    -A INPUT -p icmp -j ACCEPT
+        match l4proto in {1}
+        accept
+    -A INPUT -p 47 -j ACCEPT
+        match l4proto in {47}
+        accept
+    -A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+        match l4proto in {6}
+        match dport in {22}
+        accept
+    -A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+        match l4proto in {6}
+        match dport in {22}
+        accept
+    -A INPUT -p tcp -m tcp --dport 80:90 -j ACCEPT
+        match l4proto in {6}
+        match dport in {80-90}
+        accept
+    -A INPUT -p tcp -m tcp ! --dport 22 -j ACCEPT
+        match l4proto in {6}
+        match dport not in {22}
+        accept
+    -A INPUT -p tcp -m tcp ! --dport 80:90 -j ACCEPT
+        match l4proto in {6}
+        match dport not in {80-90}
+        accept
+    -A INPUT -p tcp -m tcp --sport 1024:65535 --dport 30 -j ACCEPT
+        match l4proto in {6}
+        match sport in {1024-65535}
+        match dport in {30}
+        accept
+    -A INPUT -p tcp -m tcp --sport 99 -j ACCEPT
+        match l4proto in {6}
+        match sport in {99}
+        accept
+    -A INPUT -p udp -m udp --dport 53 -j ACCEPT
+        match l4proto in {17}
+        match dport in {53}
+        accept
+    -A INPUT -p udp -m udp --sport 53 --dport 1024:65535 -j ACCEPT
+        match l4proto in {17}
+        match sport in {53}
+        match dport in {1024-65535}
+        accept
+    -A INPUT -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -j ACCEPT
+        match l4proto in {6}
+        match tcpflags&0x17 in {2}
+        accept
+    -A INPUT -p tcp -m tcp --tcp-flags SYN,ACK SYN -j ACCEPT
+        match l4proto in {6}
+        match tcpflags&0x12 in {2}
+        accept
+    -A INPUT -p tcp -m tcp ! --tcp-flags FIN,SYN,RST,ACK SYN -j ACCEPT
+        match l4proto in {6}
+        match tcpflags&0x17 not in {2}
+        accept
+    -A INPUT -p tcp -m tcp --tcp-option 2 -j ACCEPT
+        match l4proto in {6}
+        UNKNOWN the tcp match option --tcp-option looks at TCP options, which seaward does not model
+        accept
+    -A INPUT -p tcp -m tcp --dport 22 --tcp-flags FIN,SYN,RST,ACK SYN -j ACCEPT
+        match l4proto in {6}
+        match dport in {22}
+        match tcpflags&0x17 in {2}
+        accept
+    -A INPUT -p icmp -m icmp --icmp-type 8 -j ACCEPT
+        match l4proto in {1}
+        match icmp-type in {8}
+        accept
+    -A INPUT -p icmp -m icmp --icmp-type 3/4 -j ACCEPT
+        match l4proto in {1}
+        UNKNOWN the icmp match checks code 4 of type 3, and seaward models only the type
+        accept
+    -A INPUT -p sctp -m sctp --dport 100 -j ACCEPT
+        match l4proto in {132}
+        match dport in {100}
+        accept
+    -A INPUT -p udplite -j ACCEPT
+        match l4proto in {136}
+        accept
+    -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        match ctstate in {4, 2}
+        accept
+    -A INPUT -m state --state NEW -j ACCEPT
+        match ctstate in {8}
+        accept
+    -A INPUT -m conntrack --ctstate INVALID -j DROP
+        match ctstate in {1}
+        drop
+    -A INPUT -p tcp -m multiport --dports 80,443 -j ACCEPT
+        match l4proto in {6}
+        match dport in {80, 443}
+        accept
+    -A INPUT -m comment --comment "hello there" -j ACCEPT
+        always (comment: hello there)
+        accept
+    -A INPUT -p tcp -m tcp --dport 23 -m comment --comment telnet -j DROP
+        match l4proto in {6}
+        match dport in {23}
+        always (comment: telnet)
+        drop
+    -A INPUT -m addrtype --dst-type LOCAL -j ACCEPT
+        match daddr-type in {2}
+        accept
+    -A INPUT -m mark --mark 0x1 -j ACCEPT
+        match mark in {1}
+        accept
+    -A INPUT -m mark --mark 0x10/0xff -j ACCEPT
+        match mark&0xff in {16}
+        accept
+    -A INPUT -m mark ! --mark 0x1 -j ACCEPT
+        match mark not in {1}
+        accept
+    -A INPUT -m connmark --mark 0x2 -j ACCEPT
+        match ctmark in {2}
+        accept
+    -A INPUT -m limit --limit 10/sec -j ACCEPT
+        always (rate limit (-m limit): its burst lets a first packet through)
+        accept
+    -A INPUT -m limit --limit 10/sec --limit-burst 7 -j ACCEPT
+        always (rate limit (-m limit): its burst lets a first packet through)
+        accept
+    -A INPUT -m pkttype --pkt-type broadcast -j DROP
+        match pkttype in {1}
+        drop
+    -A INPUT -m iprange --src-range 198.51.100.1-198.51.100.9 -j ACCEPT
+        match saddr in {198.51.100.1-198.51.100.9}
+        accept
+    -A INPUT -m mac --mac-source 00:00:5e:00:53:01 -j ACCEPT
+        UNKNOWN the mac match (-m mac) looks at the sender's hardware (MAC) address, which seaward does not model
+        accept
+    -A INPUT -m length --length 0:100 -j ACCEPT
+        UNKNOWN the length match (-m length) looks at the packet's length, which seaward does not model
+        accept
+    -A INPUT -m ttl --ttl-eq 64 -j ACCEPT
+        UNKNOWN the ttl match (-m ttl) looks at the packet's time-to-live, which seaward does not model
+        accept
+    -A INPUT -m tos --tos 0x10/0xff -j ACCEPT
+        UNKNOWN the tos match (-m tos) looks at the packet's type-of-service field, which seaward does not model
+        accept
+    -A INPUT -m dscp --dscp 0x0a -j ACCEPT
+        UNKNOWN the dscp match (-m dscp) looks at the packet's DSCP priority field, which seaward does not model
+        accept
+    -A INPUT -m helper --helper ftp -j ACCEPT
+        UNKNOWN the helper match (-m helper) looks at which connection helper (FTP, SIP and so on) made the connection, which seaward does not model
+        accept
+    -A INPUT -m cgroup --cgroup 1 -j ACCEPT
+        UNKNOWN the cgroup match (-m cgroup) looks at which group of local programs the packet belongs to, which seaward does not model
+        accept
+    -A INPUT -m physdev --physdev-in eth0 -j ACCEPT
+        UNKNOWN the physdev match (-m physdev) looks at which bridge port the packet used, which seaward does not model
+        accept
+    -A INPUT -m recent --set --name x --mask 255.255.255.255 --rsource -j ACCEPT
+        always (remember the sender (-m recent --set))
+        accept
+    -A INPUT -m hashlimit --hashlimit-upto 5/sec --hashlimit-burst 5 --hashlimit-name h -j ACCEPT
+        always (rate limit (-m hashlimit): its burst lets a first packet through)
+        accept
+    -A INPUT -m connlimit --connlimit-above 5 --connlimit-mask 32 --connlimit-saddr -j DROP
+        never (connection count --connlimit-above 5 (a first connection counts 1))
+        drop
+    -A INPUT -m string --string "abc" --algo bm -j DROP
+        UNKNOWN the string match (-m string) looks inside the packet's data, which seaward does not model
+        drop
+    -A INPUT -m u32 --u32 "0x0&0xff=0x45" -j DROP
+        UNKNOWN the u32 match (-m u32) tests raw bytes of the packet, which seaward does not model
+        drop
+    -A INPUT -m statistic --mode random --probability 0.50000000000 -j DROP
+        UNKNOWN the statistic match (-m statistic) matches only some packets, at random or by count, which seaward does not model
+        drop
+    -A INPUT -m time --timestart 08:00:00 --timestop 17:00:00 --datestop 2038-01-19T03:14:07 -j DROP
+        UNKNOWN the time match (-m time) depends on the time of day or the date, which seaward does not model
+        drop
+    -A INPUT -m socket -j ACCEPT
+        UNKNOWN the socket match (-m socket) looks for a matching local socket, which seaward does not model
+        accept
+    -A INPUT -m policy --dir in --pol none -j ACCEPT
+        match ipsec-in in {0}
+        accept
+    -A INPUT -f -j DROP
+        never (fragments only (-f): a first packet is never a later fragment)
+        drop
+    -A INPUT -p tcp -m tcp --dport 24 -j REJECT --reject-with icmp-port-unreachable
+        match l4proto in {6}
+        match dport in {24}
+        reject
+    -A INPUT -p tcp -m tcp --dport 25 -j REJECT --reject-with icmp-host-unreachable
+        match l4proto in {6}
+        match dport in {25}
+        reject
+    -A INPUT -p tcp -m tcp --dport 27 -j REJECT --reject-with tcp-reset
+        match l4proto in {6}
+        match dport in {27}
+        reject
+    -A INPUT -p tcp -m tcp --dport 28 -j LOG --log-prefix "x "
+        match l4proto in {6}
+        match dport in {28}
+        noop (log (LOG))
+    -A INPUT -p tcp -m tcp --dport 29 -j NFLOG --nflog-group 1
+        match l4proto in {6}
+        match dport in {29}
+        noop (log (NFLOG))
+    -A INPUT -p tcp -m tcp --dport 31 -j NFLOG --nflog-prefix y --nflog-group 1
+        match l4proto in {6}
+        match dport in {31}
+        noop (log (NFLOG))
+    -A INPUT -p tcp -m tcp --dport 32 -j NFQUEUE --queue-num 1
+        match l4proto in {6}
+        match dport in {32}
+        UNKNOWN-STMT the NFQUEUE target passes the packet to a program that decides its fate
+    -A INPUT -p tcp -m tcp --dport 33
+        match l4proto in {6}
+        match dport in {33}
+    -A INPUT -j web
+        jump web
+    -A INPUT -g other
+        goto other
+    -A INPUT -s 198.51.100.7/32 -d 203.0.113.10/32 -i eth0 -p tcp -m tcp --dport 443 -j web
+        match saddr in {198.51.100.7}
+        match daddr in {203.0.113.10}
+        match iif in {"eth0"}
+        match l4proto in {6}
+        match dport in {443}
+        jump web
+    -A INPUT -j RETURN
+        return
+    -A INPUT -j DROP
+        drop
+    -A INPUT -p tcp -m tcp --dport 34 -j AUDIT --type accept
+        match l4proto in {6}
+        match dport in {34}
+        noop (audit record (AUDIT))
+    -A INPUT -p tcp -m tcp --dport 35 -j TCPMSS --set-mss 1400
+        match l4proto in {6}
+        match dport in {35}
+        noop (TCP MSS clamping (TCPMSS))
+  chain FORWARD: filter hook forward priority 0 policy drop
+    -A FORWARD -i eth0 -o docker0 -j ACCEPT
+        match iif in {"eth0"}
+        match oif in {"docker0"}
+        accept
+    -A FORWARD -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        match oif in {"docker0"}
+        match ctstate in {4, 2}
+        accept
+    -A FORWARD -d 172.17.0.2/32 ! -i docker0 -o docker0 -p tcp -m tcp --dport 80 -j ACCEPT
+        match daddr in {172.17.0.2}
+        match iif not in {"docker0"}
+        match oif in {"docker0"}
+        match l4proto in {6}
+        match dport in {80}
+        accept
+  chain OUTPUT: filter hook output priority 0 policy accept
+  chain web
+    -A web -s 198.51.100.0/24 -j ACCEPT
+        match saddr in {198.51.100.0/24}
+        accept
+    -A web -j RETURN
+        return
+  chain other
+    -A other -j DROP
+        drop
+table ip6 filter (iptables)
+  chain INPUT: filter hook input priority 0 policy drop
+    -A INPUT -s 2001:db8:99::7/128 -j ACCEPT
+        match saddr in {2001:db8:99::7}
+        accept
+    -A INPUT -s 2001:db8:99::/64 -j ACCEPT
+        match saddr in {2001:db8:99::/64}
+        accept
+    -A INPUT ! -d 2001:db8:1::10/128 -j DROP
+        match daddr not in {2001:db8:1::10}
+        drop
+    -A INPUT -p ipv6-icmp -j ACCEPT
+        match l4proto in {58}
+        accept
+    -A INPUT -p ipv6-icmp -m icmp6 --icmpv6-type 128 -j ACCEPT
+        match l4proto in {58}
+        match icmpv6-type in {128}
+        accept
+    -A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+        match l4proto in {6}
+        match dport in {22}
+        accept
+    -A INPUT -i eth0 -p udp -m udp --dport 53 -j ACCEPT
+        match iif in {"eth0"}
+        match l4proto in {17}
+        match dport in {53}
+        accept
+    -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+        match ctstate in {4, 2}
+        accept
+    -A INPUT -p tcp -m tcp --dport 24 -j REJECT --reject-with icmp6-port-unreachable
+        match l4proto in {6}
+        match dport in {24}
+        reject
+    -A INPUT -m hl --hl-eq 64 -j ACCEPT
+        UNKNOWN the hl match (-m hl) looks at the packet's hop limit, which seaward does not model
+        accept
+    -A INPUT -m ipv6header --header ipv6-frag --soft -j DROP
+        UNKNOWN the ipv6header match (-m ipv6header) looks at which IPv6 extension headers the packet has, which seaward does not model
+        drop
+    -A INPUT -m rt --rt-type 0 -j DROP
+        never (packets with a routing header only (-m rt): a plain connection attempt has none)
+        drop
+  chain FORWARD: filter hook forward priority 0 policy drop
+  chain OUTPUT: filter hook output priority 0 policy accept

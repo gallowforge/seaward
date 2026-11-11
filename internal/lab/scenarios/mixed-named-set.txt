@@ -1,0 +1,53 @@
+name: mixed-named-set
+about: An iptables-made filter table to which nft adds two named sets and three rules that look
+about: the packet up in them. iptables-save prints "ip saddr . tcp dport @blocked drop" as
+about: "-p tcp -j DROP" (all TCP closed), "ip saddr @trusted jump ADMIN" as "-j ADMIN" (everybody
+about: goes in) and loses the "not in @trusted" of the last rule. The chain ADMIN is iptables' own,
+about: with a multiport match and a reject the nft listing shows only by name.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:ADMIN - [0:0]
+-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 80 -j ACCEPT
+-A ADMIN -p tcp -m multiport --dports 22,3306 -j ACCEPT
+-A ADMIN -p tcp -j REJECT --reject-with tcp-reset
+COMMIT
+--- nft
+table ip filter {
+	set trusted {
+		type ipv4_addr
+		flags interval
+		elements = { 198.51.100.0/25, 192.0.2.50 }
+	}
+	set blocked {
+		type ipv4_addr . inet_service
+		elements = { 203.0.113.77 . 80 }
+	}
+	chain INPUT {
+		ip saddr @trusted jump ADMIN
+		ip saddr != @trusted tcp dport 8443 accept
+	}
+}
+insert rule ip filter INPUT index 1 ip saddr . tcp dport @blocked drop
+--- listen
+host tcp 0.0.0.0 22
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 3306
+host tcp 0.0.0.0 5432
+host tcp 0.0.0.0 8443
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 22 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 3306 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 5432 want:refused
+eth0 198.51.100.200 203.0.113.10 tcp 22 want:silent
+eth0 198.51.100.200 203.0.113.10 tcp 5432 want:silent
+eth1 192.0.2.50 10.20.0.1 tcp 22 want:open
+eth1 192.0.2.51 10.20.0.1 tcp 22 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 80 want:silent
+eth0 203.0.113.78 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 80 want:open
+eth0 198.51.100.200 203.0.113.10 tcp 8443 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8443 want:refused

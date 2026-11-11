@@ -3,6 +3,7 @@ package snapshot
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/gallowforge/seaward/internal/host"
@@ -55,10 +56,12 @@ func build(b *Bundle) (*rules.Ruleset, *host.Host, error) {
 	notRoot := meta["root"] == "no"
 
 	h.Notes = append(h.Notes, errorNotes(b, notRoot)...)
-	buildRules(b, rs, h)
+	buildRules(b, rs, h, notRoot)
 	if !anySection(b, ruleSections...) && !anyError(b, ruleSections...) {
 		if notRoot {
-			h.Notes = append(h.Notes, "The packet rules were not read: the snapshot was taken without root.")
+			const why = "The packet rules were not read: the snapshot was taken without root."
+			h.Notes = append(h.Notes, why)
+			rs.Unread = append(rs.Unread, rules.Unread{Why: why})
 		} else {
 			h.Notes = append(h.Notes, "This machine has no packet rules: nothing in the kernel filters traffic.")
 		}
@@ -67,10 +70,30 @@ func build(b *Bundle) (*rules.Ruleset, *host.Host, error) {
 	return rs, h, nil
 }
 
-func buildRules(b *Bundle, rs *rules.Ruleset, h *host.Host) {
+// ruleFamily is the address family a rule section speaks for; "" is both.
+var ruleFamily = map[string]string{
+	"iptables-save": "ip", "iptables-legacy-save": "ip",
+	"ip6tables-save": "ip6", "ip6tables-legacy-save": "ip6",
+	"nft-json": "",
+}
+
+func buildRules(b *Bundle, rs *rules.Ruleset, h *host.Host, notRoot bool) {
+	// A rule source that could not be read or understood is recorded twice: as a note for the
+	// reader, and in rs.Unread so the engine stops short of calling anything let through.
 	parseNote := func(section string, err error) {
-		h.Notes = append(h.Notes, fmt.Sprintf("The %s could not be understood: %v.", sectionWhat[section], strings.TrimSuffix(err.Error(), ".")))
+		why := fmt.Sprintf("The %s could not be understood: %v.", sectionWhat[section], strings.TrimSuffix(err.Error(), "."))
+		h.Notes = append(h.Notes, why)
+		if fam, isRules := ruleFamily[section]; isRules {
+			rs.Unread = append(rs.Unread, rules.Unread{Family: fam, Why: why})
+		}
 	}
+	// A rule listing whose command failed: the sentence is already among the host notes.
+	for label, msg := range b.Errors() {
+		if fam, isRules := ruleFamily[label]; isRules {
+			rs.Unread = append(rs.Unread, rules.Unread{Family: fam, Why: errorSentence(label, msg, notRoot)})
+		}
+	}
+	sort.Slice(rs.Unread, func(i, j int) bool { return rs.Unread[i].Why < rs.Unread[j].Why })
 
 	// ipset first: the iptables rules need each set's dimensions to know what it matches.
 	var dims map[string][]string
@@ -90,9 +113,13 @@ func buildRules(b *Bundle, rs *rules.Ruleset, h *host.Host) {
 	// distributions; then an nft table named like an iptables one is the same kernel table.
 	ver, _ := b.Get("iptables-version")
 	legacy := strings.Contains(ver, "(legacy)")
-	// Tables iptables-nft printed are nf_tables tables, so nft would list them again. Legacy
-	// tables live apart from nf_tables and are never in nft's output.
-	skip := map[string]bool{}
+	// Tables iptables-nft printed are nf_tables tables, so nft lists them again. Legacy tables
+	// live apart from nf_tables and are never in nft's output. The nft reader gets the
+	// iptables-nft tables and settles, rule by rule, which listing to believe: iptables-save
+	// prints a rule made with the nft tool wrongly and without a warning when the rule uses
+	// something iptables has no words for (a set, a verdict map).
+	var shared []*rules.Table
+	var leftToNft [][2]string // family and name of tables iptables-save could not show
 	for _, s := range []struct {
 		section, family string
 		legacy          bool
@@ -110,26 +137,57 @@ func buildRules(b *Bundle, rs *rules.Ruleset, h *host.Host) {
 		if err != nil {
 			parseNote(s.section, err)
 		}
+		for _, name := range ipt.Incompatible(body) {
+			leftToNft = append(leftToNft, [2]string{s.family, name})
+		}
 		rs.Tables = append(rs.Tables, tables...)
 		rs.Notes = append(rs.Notes, notes...)
 		if !s.legacy {
-			for _, t := range tables {
-				fam := t.Family
-				if fam == "" {
-					fam = s.family
-				}
-				skip[fam+" "+t.Name] = true
-			}
+			shared = append(shared, tables...)
 		}
 	}
 
+	nftRead := false
+	defer func() {
+		if nftRead || anyError(b, "nft-json") {
+			return
+		}
+		// iptables-save said "use the nft tool" for a table and there is no nft listing to turn to.
+		for _, t := range leftToNft {
+			tool := "iptables-save"
+			if t[0] == "ip6" {
+				tool = "ip6tables-save"
+			}
+			why := fmt.Sprintf("The %s table %s holds rules only the nft tool can list, and the snapshot has no nft listing.", strings.TrimSuffix(tool, "-save"), t[1])
+			h.Notes = append(h.Notes, why)
+			rs.Unread = append(rs.Unread, rules.Unread{Family: t[0], Why: why})
+		}
+	}()
 	if body, ok := b.Get("nft-json"); ok && strings.TrimSpace(body) != "" {
-		n, err := nft.ParseJSON([]byte(body), skip)
+		n, err := nft.ParseJSON([]byte(body), shared)
 		if err != nil {
 			parseNote("nft-json", err)
+		} else {
+			nftRead = true
 		}
 		if n != nil {
-			rs.Tables = append(rs.Tables, n.Tables...)
+			// A table nft returned replaces the copy iptables-save gave of the same table.
+			settled := map[string]bool{}
+			for _, t := range n.Tables {
+				settled[t.Family+" "+t.Name] = true
+			}
+			isShared := map[*rules.Table]bool{}
+			for _, t := range shared {
+				isShared[t] = true
+			}
+			kept := rs.Tables[:0]
+			for _, t := range rs.Tables {
+				if isShared[t] && settled[t.Family+" "+t.Name] {
+					continue
+				}
+				kept = append(kept, t)
+			}
+			rs.Tables = append(kept, n.Tables...)
 			for k, s := range n.Sets {
 				rs.Sets[k] = s
 			}

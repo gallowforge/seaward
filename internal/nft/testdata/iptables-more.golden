@@ -1,0 +1,162 @@
+table ip filter (iptables)
+  chain INPUT: filter hook input priority 0 policy accept
+    -A INPUT -p tcp -m tcp --tcp-flags SYN,ACK SYN,ACK -j ACCEPT
+        match l4proto in {6}
+        match tcpflags&0x12 in {18}
+        accept
+    -A INPUT -p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG NONE -j DROP
+        match l4proto in {6}
+        match tcpflags&0x3f in {0}
+        drop
+    -A INPUT -p tcp -m tcp --tcp-flags FIN,SYN,RST,PSH,ACK,URG FIN,PSH,URG -j DROP
+        match l4proto in {6}
+        match tcpflags&0x3f in {41}
+        drop
+    -A INPUT -p tcp -m tcp ! --tcp-flags FIN,SYN,RST,ACK SYN -j DROP
+        match l4proto in {6}
+        match tcpflags&0x17 not in {2}
+        drop
+    -A INPUT -p tcp -m tcp --dport 2222 --tcp-flags FIN,SYN,RST,ACK SYN -j ACCEPT
+        match l4proto in {6}
+        match dport in {2222}
+        match tcpflags&0x17 in {2}
+        accept
+    -A INPUT -p udp ! -f -j ACCEPT
+        match l4proto in {17}
+        always (not a fragment: a first packet is never one)
+        accept
+    -A INPUT -f -j DROP
+        never (fragments only (-f): a first packet is never a later fragment)
+        drop
+    -A INPUT -m limit --limit 5/hour -j ACCEPT
+        always (rate limit (-m limit): its burst lets a first packet through)
+        accept
+    -A INPUT -m limit --limit 3/min --limit-burst 10 -j ACCEPT
+        always (rate limit (-m limit): its burst lets a first packet through)
+        accept
+    -A INPUT -m limit --limit 2/day -j ACCEPT
+        always (rate limit (-m limit): its burst lets a first packet through)
+        accept
+    -A INPUT -j NFLOG --nflog-prefix p --nflog-group 3 --nflog-threshold 5
+        noop (log (NFLOG))
+    -A INPUT -j NFLOG
+        noop (log (NFLOG))
+    -A INPUT ! -p tcp -j ACCEPT
+        match l4proto not in {6}
+        accept
+    -A INPUT -p 47 -j ACCEPT
+        match l4proto in {47}
+        accept
+    -A INPUT -j side
+        jump side
+    -A INPUT ! -i eth0 -j ACCEPT
+        match iif not in {"eth0"}
+        accept
+    -A INPUT ! -s 198.51.100.0/24 ! -d 203.0.113.10/32 -j ACCEPT
+        match saddr not in {198.51.100.0/24}
+        match daddr not in {203.0.113.10}
+        accept
+    -A INPUT -p tcp -m tcp ! --sport 1:1023 ! --dport 22 -j ACCEPT
+        match l4proto in {6}
+        match sport not in {1-1023}
+        match dport not in {22}
+        accept
+    -A INPUT -p udp -m udp --sport 1024:65535 --dport 53 -j ACCEPT
+        match l4proto in {17}
+        match sport in {1024-65535}
+        match dport in {53}
+        accept
+    -A INPUT -m mark ! --mark 0x1 -j ACCEPT
+        match mark not in {1}
+        accept
+    -A INPUT -m mark --mark 0x10/0xff -j ACCEPT
+        match mark&0xff in {16}
+        accept
+    -A INPUT -p tcp -j ACCEPT
+        match l4proto in {6}
+        accept
+    -A INPUT -p tcp -m tcp -j ACCEPT
+        match l4proto in {6}
+        accept
+    -A INPUT -p tcp -m tcp --sport 1024 --dport 22 -j ACCEPT
+        match l4proto in {6}
+        match sport in {1024}
+        match dport in {22}
+        accept
+    -A INPUT -p esp -j ACCEPT
+        match l4proto in {50}
+        accept
+    -A INPUT -p icmp -j ACCEPT
+        match l4proto in {1}
+        accept
+    -A INPUT -s 198.51.100.0/24 -j ACCEPT
+        match saddr in {198.51.100.0/24}
+        accept
+    -A INPUT -p tcp -m tcp -j ACCEPT
+        match l4proto in {6}
+        accept
+    -A INPUT -p dccp -m dccp --dport 5 -j ACCEPT
+        match l4proto in {33}
+        match dport in {5}
+        accept
+    -A INPUT -j TRACE
+        noop (trace (TRACE))
+  chain FORWARD: filter hook forward priority 0 policy accept
+    -A FORWARD -i eth0 -j side
+        match iif in {"eth0"}
+        jump side
+    -A FORWARD -p tcp -m tcp --dport 80 -g side
+        match l4proto in {6}
+        match dport in {80}
+        goto side
+  chain OUTPUT: filter hook output priority 0 policy accept
+  chain side
+table ip6 filter (iptables)
+  chain INPUT: filter hook input priority 0 policy accept
+    -A INPUT -p tcp -j ACCEPT
+        match l4proto in {6}
+        accept
+    -A INPUT ! -p udp -j ACCEPT
+        match l4proto not in {17}
+        accept
+    -A INPUT -p tcp -m tcp --dport 22 -j ACCEPT
+        match l4proto in {6}
+        match dport in {22}
+        accept
+    -A INPUT -p tcp -m tcp --tcp-flags FIN,SYN,RST,ACK SYN -j ACCEPT
+        match l4proto in {6}
+        match tcpflags&0x17 in {2}
+        accept
+    -A INPUT -m limit --limit 5/sec -j ACCEPT
+        always (rate limit (-m limit): its burst lets a first packet through)
+        accept
+    -A INPUT -s 2001:db8:99::/64 -d 2001:db8:1::10/128 -i eth0 -p udp -m udp --dport 53 -j ACCEPT
+        match saddr in {2001:db8:99::/64}
+        match daddr in {2001:db8:1::10}
+        match iif in {"eth0"}
+        match l4proto in {17}
+        match dport in {53}
+        accept
+    -A INPUT ! -s 2001:db8:99::7/128 -j DROP
+        match saddr not in {2001:db8:99::7}
+        drop
+    -A INPUT -p ipv6-icmp -j ACCEPT
+        match l4proto in {58}
+        accept
+    -A INPUT -p ipv6-icmp -j ACCEPT
+        match l4proto in {58}
+        accept
+    -A INPUT -m mark --mark 0x2/0xf -j ACCEPT
+        match mark&0xf in {2}
+        accept
+    -A INPUT -j NFLOG --nflog-group 4
+        noop (log (NFLOG))
+    -A INPUT -p tcp -m tcp --dport 100:200 -j DROP
+        match l4proto in {6}
+        match dport in {100-200}
+        drop
+    -A INPUT -s 2001:db8::/ffff:ffff:0:ffff:: -j DROP
+        UNKNOWN the source address 2001:db8::/ffff:ffff:0:ffff:: has a mask with gaps in it, which seaward cannot represent
+        drop
+  chain FORWARD: filter hook forward priority 0 policy accept
+  chain OUTPUT: filter hook output priority 0 policy accept

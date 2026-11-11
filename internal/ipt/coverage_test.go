@@ -22,7 +22,7 @@ var modeledMatchOpts = map[string]string{
 	"multiport": "dports destination-ports sports source-ports ports",
 	"conntrack": "ctstate ctproto ctorigdst ctorigdstport ctdir ctstatus",
 	"state":     "state",
-	"addrtype":  "src-type dst-type",
+	"addrtype":  "src-type dst-type limit-iface-in",
 	"mark":      "mark",
 	"connmark":  "mark",
 	"set":       "match-set update-counters update-subcounters",
@@ -38,6 +38,8 @@ var modeledMatchOpts = map[string]string{
 	"comment":   "comment",
 	"recent":    "set rcheck update remove seconds reap hitcount rttl name rsource rdest mask",
 	"connlimit": "connlimit-upto connlimit-above connlimit-mask connlimit-saddr connlimit-daddr",
+	// IPv6 extension header matches: never true for a probe, whatever the options.
+	"rt": "*", "frag": "*", "hbh": "*", "dst": "*", "ah": "*",
 }
 
 var modeledTargetOpts = map[string]string{

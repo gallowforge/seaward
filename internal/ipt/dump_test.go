@@ -19,6 +19,7 @@ var fieldNames = map[rules.FieldName]string{
 	rules.FFibDaddrType: "daddr-type", rules.FFibSaddrType: "saddr-type", rules.FRpfOK: "rpf-ok",
 	rules.FPktType: "pkttype", rules.FTCPFlags: "tcpflags", rules.FICMPType: "icmp-type",
 	rules.FICMPv6Type: "icmpv6-type", rules.FIPSecIn: "ipsec-in",
+	rules.FFibDaddrTypeIif: "daddr-type-on-iif", rules.FFibSaddrTypeIif: "saddr-type-on-iif",
 }
 
 func dumpField(f rules.Field) string {

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gallowforge/seaward/internal/host"
+	"github.com/gallowforge/seaward/internal/rules"
 )
 
 func loadTestdata(t *testing.T) *Bundle {
@@ -320,4 +321,49 @@ func mustParse(t *testing.T, s string) *Bundle {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestBuildUnreadRuleSources(t *testing.T) {
+	const head = "# seaward snapshot 1\n### meta\nhost box\n"
+	const rest = "### ss\n### ip-addr\n[]\n### ip-route-4\n[]\n### sysctl\nnet.ipv4.ip_forward = 0\n"
+	fams := func(rs *rules.Ruleset) string {
+		var out []string
+		for _, u := range rs.Unread {
+			f := u.Family
+			if f == "" {
+				f = "both"
+			}
+			out = append(out, f)
+		}
+		slices.Sort(out)
+		return strings.Join(out, " ")
+	}
+	for _, c := range []struct {
+		name, bundle, want string
+	}{
+		{"everything read", head + "root yes\n### iptables-save\n*filter\n:INPUT ACCEPT [0:0]\nCOMMIT\n" + rest, ""},
+		{"no rules on the machine", head + "root yes\n" + rest, ""},
+		{"not root, nothing collected", head + "root no\n" + rest, "both"},
+		{"not root, commands failed", head + "root no\n" + rest +
+			"### errors\niptables-save: exit status 4\nip6tables-save: exit status 4\nnft-json: Operation not permitted (you must be root)\nufw-status: ERROR: You need to be root to run this script\n", "both ip ip6"},
+		{"one listing failed", head + "root yes\n### iptables-save\n*filter\n:INPUT ACCEPT [0:0]\nCOMMIT\n" + rest +
+			"### errors\nip6tables-save: timed out after 5s\n", "ip6"},
+		{"a listing that is not one", head + "root yes\n### iptables-save\n-A INPUT -j ACCEPT\n" + rest, "ip"},
+		{"a table only nft can list, and no nft listing", head + "root yes\n### iptables-save\n" +
+			"# Table `filter' is incompatible, use 'nft' tool.\n*nat\n:PREROUTING ACCEPT [0:0]\nCOMMIT\n" + rest, "ip"},
+	} {
+		rs, h, err := Build(mustParse(t, c.bundle))
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got := fams(rs); got != c.want {
+			t.Errorf("%s: unread families %q, want %q (%+v)", c.name, got, c.want, rs.Unread)
+		}
+		// Every unread source is also told to the reader.
+		for _, u := range rs.Unread {
+			if !slices.Contains(h.Notes, u.Why) {
+				t.Errorf("%s: %q is not among the notes %q", c.name, u.Why, h.Notes)
+			}
+		}
+	}
 }

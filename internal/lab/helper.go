@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,9 +52,14 @@ func RunHelper(role string, args []string, stdout io.Writer) int {
 // done, and the parent-death signal covers a killed script; this is the last backstop.
 const listenLife = 2 * time.Minute
 
+// setPdeathsig makes the listener die with the shell that started it, however that shell ends.
+// The setting belongs to the calling thread, so the goroutine stays locked to it for good.
 func setPdeathsig() {
-	// The listener dies with the shell that started it, even if that shell is killed.
+	runtime.LockOSThread()
 	syscall.RawSyscall(syscall.SYS_PRCTL, syscall.PR_SET_PDEATHSIG, uintptr(syscall.SIGKILL), 0)
+	if os.Getppid() == 1 {
+		os.Exit(1) // the shell was already gone before the setting took hold
+	}
 }
 
 func helperListen(path string, stdout io.Writer) int {
@@ -153,7 +159,13 @@ func openListener(line string) error {
 			// The echo goes back from the address the datagram was sent to, as a server
 			// answering on a wildcard socket must, or the prober would not accept it.
 			if is6 {
-				return syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_RECVPKTINFO, 1)
+				if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_RECVPKTINFO, 1); err != nil {
+					return err
+				}
+				if f[3] == "1" {
+					return nil
+				}
+				// A dual-stack socket reports IPv4 datagrams' address only through IP_PKTINFO.
 			}
 			return syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_PKTINFO, 1)
 		}
@@ -273,7 +285,7 @@ func helperProbe(path string, timeout time.Duration, stdout io.Writer) int {
 // measured arrives within a millisecond, far inside the timeout.
 func sendProbe(p probeLine, timeout time.Duration) Real {
 	start := time.Now()
-	r := Real{ID: p.id, Tries: 1}
+	r := Real{ID: p.id}
 	r.Outcome, r.Detail = sendOnce(p, timeout)
 	r.MS = time.Since(start).Milliseconds()
 	return r

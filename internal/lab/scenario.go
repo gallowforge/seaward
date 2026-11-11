@@ -558,8 +558,10 @@ func validToken(s string) bool {
 	return true
 }
 
+// validSysctl allows only per-interface settings. They exist per network namespace on every
+// kernel, so even under sudo (real root, no user namespace) they cannot reach the host.
 func validSysctl(k string) bool {
-	return strings.HasPrefix(k, "net.") && validToken(k)
+	return (strings.HasPrefix(k, "net.ipv4.conf.") || strings.HasPrefix(k, "net.ipv6.conf.")) && validToken(k)
 }
 
 func validIface(s string) bool {

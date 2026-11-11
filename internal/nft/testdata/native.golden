@@ -1,0 +1,314 @@
+table inet filter (nft)
+  chain web
+    ip saddr 198.51.100.0/24 accept
+        match nfproto in {4}
+        match saddr in {198.51.100.0/24}
+        accept
+    meta l4proto tcp ip saddr 192.0.2.0/24 reject with tcp reset
+        match l4proto in {6}
+        match nfproto in {4}
+        match saddr in {192.0.2.0/24}
+        reject
+    return
+        return
+  chain input: filter hook input priority 0 policy drop
+    ct state established,related accept
+        match ctstate in {2, 4}
+        accept
+    ct state invalid drop
+        match ctstate in {1}
+        drop
+    ct state vmap { invalid : drop, established : accept, related : accept }
+        vmap ctstate {1 : drop, 2 : accept, 4 : accept}
+    iif "lo" accept
+        match iif in {"lo"}
+        accept
+    iifname "eth*" tcp dport 22 accept
+        match iif in {"eth"*}
+        match l4proto in {6}
+        match dport in {22}
+        accept
+    iifname != "eth0" tcp dport 7070 accept
+        match iif not in {"eth0"}
+        match l4proto in {6}
+        match dport in {7070}
+        accept
+    iifname { "eth0", "eth1" } udp dport 53 accept
+        match iif in {"eth0", "eth1"}
+        match l4proto in {17}
+        match dport in {53}
+        accept
+    iifname @ifs udp dport 5353 accept
+        match iif in @inet/filter/ifs
+        match l4proto in {17}
+        match dport in {5353}
+        accept
+    ip saddr @allowed4 tcp dport 22 accept
+        match nfproto in {4}
+        match saddr in @inet/filter/allowed4
+        match l4proto in {6}
+        match dport in {22}
+        accept
+    ip6 saddr @allowed6 tcp dport 22 accept
+        match nfproto in {6}
+        match saddr in @inet/filter/allowed6
+        match l4proto in {6}
+        match dport in {22}
+        accept
+    meta l4proto . th dport @svc accept
+        match l4proto . dport in @inet/filter/svc
+        accept
+    ip saddr . tcp dport @pairs accept
+        match nfproto in {4}
+        match l4proto in {6}
+        match saddr . dport in @inet/filter/pairs
+        accept
+    ip saddr . tcp dport { 198.51.100.7 . 25, 192.0.2.0/24 . 100-200 } accept
+        match nfproto in {4}
+        match l4proto in {6}
+        match saddr . dport in {198.51.100.7 . 25, 192.0.2.0/24 . 100-200}
+        accept
+    tcp dport { 80, 8000-8100 } accept
+        match l4proto in {6}
+        match dport in {80, 8000-8100}
+        accept
+    tcp dport != { 1, 2 } counter packets 0 bytes 0
+        match l4proto in {6}
+        match dport not in {1, 2}
+        noop (counter)
+    ip saddr != @allowed4 tcp dport 9000 accept
+        match nfproto in {4}
+        match saddr not in @inet/filter/allowed4
+        match l4proto in {6}
+        match dport in {9000}
+        accept
+    tcp dport vmap @ports
+        match l4proto in {6}
+        vmap dport @inet/filter/ports
+    udp dport vmap { 53 : accept, 123 : drop }
+        match l4proto in {17}
+        vmap dport {53 : accept, 123 : drop}
+    meta l4proto { tcp, udp } th dport 53 accept
+        match l4proto in {6, 17}
+        match dport in {53}
+        accept
+    meta nfproto ipv4 tcp dport 81 accept
+        match nfproto in {4}
+        match l4proto in {6}
+        match dport in {81}
+        accept
+    meta l4proto tcp accept
+        match l4proto in {6}
+        accept
+    ip protocol icmp accept
+        match nfproto in {4}
+        match l4proto in {1}
+        accept
+    ip6 nexthdr ipv6-icmp accept
+        match nfproto in {6}
+        match l4proto in {58}
+        accept
+    icmp type echo-request accept
+        match nfproto in {4}
+        match l4proto in {1}
+        match icmp-type in {8}
+        accept
+    icmpv6 type { nd-router-advert, nd-neighbor-solicit } accept
+        match nfproto in {6}
+        match l4proto in {58}
+        match icmpv6-type in {134, 135}
+        accept
+    meta mark 0x00000001 accept
+        match mark in {1}
+        accept
+    meta mark & 0x000000ff == 0x00000010 accept
+        match mark&0xff in {16}
+        accept
+    ct mark 0x00000002 accept
+        match ctmark in {2}
+        accept
+    fib daddr type local accept
+        match daddr-type in {2}
+        accept
+    fib saddr . iif check missing drop
+        match rpf-ok in {0}
+        drop
+    fib daddr . iif type != { local, broadcast, multicast } drop
+        match daddr-type-iif not in {2, 3, 5}
+        drop
+    meta pkttype broadcast drop
+        match pkttype in {1}
+        drop
+    tcp flags syn tcp dport 99 accept
+        match l4proto in {6}
+        match tcpflags&0x2 not in {0}
+        match dport in {99}
+        accept
+    tcp flags & (fin | syn | rst | ack) == syn accept
+        match l4proto in {6}
+        match tcpflags&0x17 in {2}
+        accept
+    limit rate 10/second burst 5 packets accept
+        always (rate limit (limit rate): its burst lets a first packet through)
+        accept
+    limit rate over 10/second burst 5 packets drop
+        never (over the rate limit (limit rate over): a first packet never is)
+        drop
+    ct count over 5 drop
+        never (connection count (ct count): a first packet is its sender's only connection)
+        drop
+    tcp dport 23 log prefix "telnet " drop
+        match l4proto in {6}
+        match dport in {23}
+        noop (log)
+        drop
+    tcp dport 24 counter packets 0 bytes 0 reject
+        match l4proto in {6}
+        match dport in {24}
+        noop (counter)
+        reject
+    tcp dport 25 reject with icmp host-unreachable
+        match l4proto in {6}
+        match dport in {25}
+        match nfproto in {4}
+        reject
+    tcp dport 26 reject with icmpx admin-prohibited
+        match l4proto in {6}
+        match dport in {26}
+        reject
+    tcp dport 27 reject with tcp reset
+        match l4proto in {6}
+        match dport in {27}
+        reject
+    ip saddr 203.0.113.0/24 ip daddr 203.0.113.10 accept
+        match nfproto in {4}
+        match saddr in {203.0.113.0/24}
+        match daddr in {203.0.113.10}
+        accept
+    ip saddr 198.51.100.1-198.51.100.9 accept
+        match nfproto in {4}
+        match saddr in {198.51.100.1-198.51.100.9}
+        accept
+    ip daddr != 203.0.113.10 drop
+        match nfproto in {4}
+        match daddr not in {203.0.113.10}
+        drop
+    ip6 saddr 2001:db8::/32 accept
+        match nfproto in {6}
+        match saddr in {2001:db8::/32}
+        accept
+    tcp sport 1024-65535 tcp dport 30 accept
+        match l4proto in {6}
+        match sport in {1024-65535}
+        match dport in {30}
+        accept
+    tcp dport 31 add @seen { ip saddr } accept
+        match l4proto in {6}
+        match dport in {31}
+        noop (add to a set)
+        accept
+    tcp dport 32 add @m1 { ip saddr limit rate 10/second burst 5 packets } accept
+        match l4proto in {6}
+        match dport in {32}
+        noop (add to a set)
+        always (rate limit (limit rate): its burst lets a first packet through)
+        accept
+    meta nftrace set 1
+        noop (trace (meta nftrace))
+    ct status dnat accept
+        match ct-dnat in {1}
+        accept
+    ct direction original accept
+        match ct-dir in {0}
+        accept
+    ct original proto-dst 80 accept
+        match ct-orig-dport in {80}
+        accept
+    ip daddr 203.0.113.10 tcp dport 40 accept comment "a comment here"
+        match nfproto in {4}
+        match daddr in {203.0.113.10}
+        match l4proto in {6}
+        match dport in {40}
+        accept
+    jump web
+        jump web
+    goto web
+        goto web
+  chain pre: filter hook prerouting priority -300 policy accept
+    tcp dport 50 notrack
+        match l4proto in {6}
+        match dport in {50}
+        notrack
+    meta mark set 0x00000005
+        mark = (mark & 0x0) ^ 0x5
+    meta mark set meta mark & 0xffffff12 | 0x00000012
+        mark = (mark & 0xffffff00) ^ 0x12
+    meta mark set meta mark | 0x00000100
+        mark = (mark & 0xfffffeff) ^ 0x100
+    meta mark set ct mark
+        mark <- ctmark, mask 0xffffffff
+    ct mark set meta mark
+        ctmark <- mark, mask 0xffffffff
+    ct mark set 0x00000007
+        ctmark = (ctmark & 0x0) ^ 0x7
+    ct mark set ct mark & 0x0000ff01 | 0x00000001
+        ctmark = (ctmark & 0xff00) ^ 0x1
+  chain nat_pre: nat hook prerouting priority -100 policy accept
+    tcp dport 8080 dnat ip to 203.0.113.10:22
+        match l4proto in {6}
+        match dport in {8080}
+        match nfproto in {4}
+        dnat 203.0.113.10 port 22
+    tcp dport 8081 dnat ip to 172.17.0.2
+        match l4proto in {6}
+        match dport in {8081}
+        match nfproto in {4}
+        dnat 172.17.0.2
+    tcp dport 8082 dnat ip6 to [2001:db8::5]:80
+        match l4proto in {6}
+        match dport in {8082}
+        match nfproto in {6}
+        dnat 2001:db8::5 port 80
+    tcp dport 2200 redirect to :22
+        match l4proto in {6}
+        match dport in {2200}
+        redirect port 22
+    tcp dport 2201 redirect
+        match l4proto in {6}
+        match dport in {2201}
+        redirect
+    dnat ip to tcp dport map @portmap
+        match nfproto in {4}
+        match l4proto in {6}
+        match dport in @inet/filter/portmap
+        dnat 172.17.0.2
+    tcp dport 8083 dnat ip to 172.17.0.2-172.17.0.9:80-90
+        match l4proto in {6}
+        match dport in {8083}
+        match nfproto in {4}
+        dnat 172.17.0.2-172.17.0.9 port 80-90
+  chain nat_post: nat hook postrouting priority 100 policy accept
+    oifname "eth0" masquerade
+        match oif in {"eth0"}
+        noop (masquerade)
+    ip saddr 172.17.0.0/16 snat ip to 203.0.113.10
+        match nfproto in {4}
+        match saddr in {172.17.0.0/16}
+        noop (source NAT (snat))
+  chain forward: filter hook forward priority 0 policy drop
+    oifname "docker0" ip daddr 172.17.0.2 tcp dport 80 accept
+        match oif in {"docker0"}
+        match nfproto in {4}
+        match daddr in {172.17.0.2}
+        match l4proto in {6}
+        match dport in {80}
+        accept
+set @inet/filter/allowed4 {192.0.2.50, 192.0.2.100-192.0.2.120, 198.51.100.0/25}
+set @inet/filter/allowed6 {2001:db8:99::7}
+set @inet/filter/ifs {"eth0", "eth1"}
+set @inet/filter/m1 dynamic {}
+set @inet/filter/pairs {198.51.100.0/24 . 8000-8100, 192.0.2.7 . 22}
+set @inet/filter/portmap {8080}
+set @inet/filter/ports {22 : accept, 80 : drop, 443 : jump web, 8080 : goto web}
+set @inet/filter/seen dynamic {}
+set @inet/filter/svc {6 . 443, 17 . 53}

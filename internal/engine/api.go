@@ -80,15 +80,15 @@ const (
 
 // Step is one thing that happened to the packet.
 type Step struct {
-	Kind   StepKind
-	Hook   string // "prerouting", "input", "forward", "postrouting"
-	Family string // table family
-	Table  string
-	Chain  string
-	Rule   string // the rule as its owner prints it
+	Kind   StepKind `json:"kind"`
+	Hook   string   `json:"hook,omitempty"`   // "prerouting", "input", "forward", "postrouting"
+	Family string   `json:"family,omitempty"` // table family
+	Table  string   `json:"table,omitempty"`
+	Chain  string   `json:"chain,omitempty"`
+	Rule   string   `json:"rule,omitempty"` // the rule as its owner prints it
 	// Effect is a few plain words: "accept", "drop", "reject", "to chain DOCKER",
 	// "destination becomes 172.17.0.2:80", "policy drop".
-	Effect string
+	Effect string `json:"effect"`
 	// Decisive marks the step that settled the result.
-	Decisive bool
+	Decisive bool `json:"decisive,omitempty"`
 }

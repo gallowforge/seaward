@@ -1,0 +1,46 @@
+name: mixed-anonymous-set
+about: An iptables-made filter table with three rules added by nft between and after the iptables
+about: ones, each using an anonymous set, which iptables has no words for. iptables-save prints
+about: "tcp dport { 25, 587 } accept" as "-p tcp -j ACCEPT" (every TCP port open) and the rule
+about: that lets two sources past the reject on 9000 as one that lets everybody past. The kernel
+about: does what the nft listing says, and the iptables rules around them keep their details.
+--- iptables
+*filter
+:INPUT DROP [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+-A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -p tcp -m multiport --dports 80,443 -j ACCEPT
+-A INPUT -p tcp -m tcp --dport 9000 -j REJECT --reject-with tcp-reset
+-A INPUT -p udp -m udp --dport 53 -j ACCEPT
+COMMIT
+--- nft
+insert rule ip filter INPUT index 1 tcp dport { 25, 587 } accept
+insert rule ip filter INPUT index 3 ip saddr { 198.51.100.7, 192.0.2.0/24 } tcp dport 9000 accept
+add rule ip filter INPUT udp dport { 123, 5000-5100 } accept
+--- listen
+host tcp 0.0.0.0 25
+host tcp 0.0.0.0 80
+host tcp 0.0.0.0 443
+host tcp 0.0.0.0 587
+host tcp 0.0.0.0 8080
+host tcp 0.0.0.0 9000
+host udp 0.0.0.0 53
+host udp 0.0.0.0 123
+host udp 0.0.0.0 5050
+host udp 0.0.0.0 6000
+--- probes
+eth0 198.51.100.7 203.0.113.10 tcp 25 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 587 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 80 want:open
+eth0 203.0.113.77 203.0.113.10 tcp 443 want:open
+eth0 198.51.100.7 203.0.113.10 tcp 8080 want:silent
+eth0 203.0.113.77 203.0.113.10 tcp 26 want:silent
+eth0 198.51.100.7 203.0.113.10 tcp 9000 want:open
+eth0 198.51.100.8 203.0.113.10 tcp 9000 want:refused
+eth1 192.0.2.50 10.20.0.1 tcp 9000 want:open
+eth1 10.20.0.5 10.20.0.1 tcp 9000 want:refused
+eth0 203.0.113.77 203.0.113.10 udp 53 want:open
+eth0 203.0.113.77 203.0.113.10 udp 123 want:open
+eth0 203.0.113.77 203.0.113.10 udp 5050 want:open
+eth0 203.0.113.77 203.0.113.10 udp 6000 want:silent

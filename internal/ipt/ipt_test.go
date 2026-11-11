@@ -238,7 +238,8 @@ func TestMatches(t *testing.T) {
 			ne(rules.FFibSaddrType, num(rules.AddrUnicast), num(rules.AddrBlackhole)), eq(rules.FFibDaddrType, num(rules.AddrLocal))}},
 		{"-m addrtype --dst-type BROADCAST,MULTICAST,ANYCAST,UNREACHABLE,PROHIBIT,UNSPEC", []rules.Expr{eq(rules.FFibDaddrType,
 			num(rules.AddrBroadcast), num(rules.AddrMulticast), num(rules.AddrAnycast), num(rules.AddrUnreachable), num(rules.AddrProhibit), num(rules.AddrUnspec))}},
-		{"-m addrtype --dst-type LOCAL --limit-iface-in", []rules.Expr{unk("--limit-iface-in")}},
+		{"-m addrtype --dst-type LOCAL --limit-iface-in", []rules.Expr{eq(rules.FFibDaddrTypeIif, num(rules.AddrLocal))}},
+		{"-m addrtype --src-type LOCAL --limit-iface-out", []rules.Expr{unk("--limit-iface-out")}},
 		{"-m addrtype --dst-type NAT", []rules.Expr{unk("type NAT")}},
 		// Marks.
 		{"-m mark --mark 0x1/0xff", []rules.Expr{masked(rules.FMark, 0xff, 1, false)}},
@@ -324,7 +325,9 @@ func TestIP6Matches(t *testing.T) {
 		{"-p ipv6-icmp --icmpv6-type 2", []rules.Expr{eq(rules.FL4Proto, num(58)), eq(rules.FICMPv6Type, num(2))}},
 		{"-4", []rules.Expr{never()}},
 		{"-6", []rules.Expr{always()}},
-		{"-m rt --rt-type 0", []rules.Expr{unk("the rt match (-m rt) looks at the IPv6 routing header")}},
+		{"-m rt --rt-type 0", []rules.Expr{never()}},
+		{"-m frag --fragid 0:4294967295", []rules.Expr{never()}},
+		{"-m hbh", []rules.Expr{never()}},
 	})
 }
 

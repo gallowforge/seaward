@@ -1,0 +1,101 @@
+tcp 5432  postgres in container db (postgres:16)
+Reachable from the internet. ufw does not allow it.
+
+gets through  anyone (192.0.2.7) -> 203.0.113.10
+              anyone on the local network (203.0.113.11) -> 203.0.113.10
+  A rule in chain DOCKER of table nat sends it on to 172.18.0.2:5432,
+  container db. From there it is forwarded, not delivered to this
+  machine, so the INPUT chain, where ufw keeps its list, never sees it.
+
+  1  prerouting  nat PREROUTING         to chain DOCKER
+                 -A PREROUTING -m addrtype --dst-type LOCAL -j DOCKER
+> 2  prerouting  nat DOCKER             destination becomes 172.18.0.2:5432
+                 -A DOCKER ! -i br-4c2f9a71d0e3 -p tcp -m tcp --dport 5432 -j DNAT
+                   --to-destination 172.18.0.2:5432
+  3  route                              forwarded: 172.18.0.2 is reached through br-4c2f9a71d0e3
+  4  forward     filter FORWARD         to chain DOCKER-FORWARD
+                 -A FORWARD -j DOCKER-FORWARD
+  5  forward     filter DOCKER-FORWARD  to chain DOCKER-BRIDGE
+                 -A DOCKER-FORWARD -j DOCKER-BRIDGE
+  6  forward     filter DOCKER-BRIDGE   to chain DOCKER
+                 -A DOCKER-BRIDGE -o br-4c2f9a71d0e3 -j DOCKER
+  7  forward     filter DOCKER          accept
+                 -A DOCKER -d 172.18.0.2/32 ! -i br-4c2f9a71d0e3 -o br-4c2f9a71d0e3 -p tcp -m tcp
+                   --dport 5432 -j ACCEPT
+> 8  deliver                            handed to container db, where postgres is listening on port
+                                        5432
+
+dropped       anyone (2001:db8:99::7) -> 2001:db8:1::10
+              anyone on the local network (2001:db8:1::11) -> 2001:db8:1::10
+  No rule lets it in: chain INPUT ends with policy drop.
+
+  1  route                    for this machine: 2001:db8:1::10 is one of its own addresses
+> 2  input  ip6 filter INPUT  policy drop: no rule let it through
+
+tcp 9100  node_exporter
+Reachable from 198.51.100.0/24 only, as ufw allows.
+
+dropped       anyone (192.0.2.7) -> 203.0.113.10
+              anyone on the local network (203.0.113.11) -> 203.0.113.10
+  No rule lets it in: chain INPUT ends with policy drop.
+
+  1  route                for this machine: 203.0.113.10 is one of its own addresses
+> 2  input  filter INPUT  policy drop: no rule let it through
+
+gets through  198.51.100.0/24 (198.51.100.7) -> 203.0.113.10
+  Accepted by a rule in chain ufw-user-input of table filter.
+
+  1  route                             for this machine: 203.0.113.10 is one of its own addresses
+  2  input    filter INPUT             to chain ufw-before-input
+              -A INPUT -j ufw-before-input
+  3  input    filter ufw-before-input  to chain ufw-user-input
+              -A ufw-before-input -j ufw-user-input
+  4  input    filter ufw-user-input    accept
+              -A ufw-user-input -s 198.51.100.0/24 -p tcp -m tcp --dport 9100 -j ACCEPT
+> 5  deliver                           node_exporter is listening on [::]:9100
+
+dropped       anyone (2001:db8:99::7) -> 2001:db8:1::10
+              anyone on the local network (2001:db8:1::11) -> 2001:db8:1::10
+  No rule lets it in: chain INPUT ends with policy drop.
+
+  1  route                    for this machine: 2001:db8:1::10 is one of its own addresses
+> 2  input  ip6 filter INPUT  policy drop: no rule let it through
+
+tcp 53  systemd-resolve
+Listens on this machine only.
+It is bound to 127.0.0.53, which only this machine can reach.
+Sent from outside all the same, a packet ends like this:
+
+dropped       anyone (192.0.2.7) -> 203.0.113.10
+              anyone on the local network (203.0.113.11) -> 203.0.113.10
+  No rule lets it in: chain INPUT ends with policy drop.
+
+  1  route                for this machine: 203.0.113.10 is one of its own addresses
+> 2  input  filter INPUT  policy drop: no rule let it through
+
+dropped       anyone (2001:db8:99::7) -> 2001:db8:1::10
+              anyone on the local network (2001:db8:1::11) -> 2001:db8:1::10
+  No rule lets it in: chain INPUT ends with policy drop.
+
+  1  route                    for this machine: 2001:db8:1::10 is one of its own addresses
+> 2  input  ip6 filter INPUT  policy drop: no rule let it through
+
+udp 53  systemd-resolve
+Listens on this machine only.
+It is bound to 127.0.0.53, which only this machine can reach.
+Sent from outside all the same, a packet ends like this:
+
+dropped       anyone (192.0.2.7) -> 203.0.113.10
+              anyone on the local network (203.0.113.11) -> 203.0.113.10
+  No rule lets it in: chain INPUT ends with policy drop.
+
+  1  route                for this machine: 203.0.113.10 is one of its own addresses
+> 2  input  filter INPUT  policy drop: no rule let it through
+
+dropped       anyone (2001:db8:99::7) -> 2001:db8:1::10
+              anyone on the local network (2001:db8:1::11) -> 2001:db8:1::10
+  No rule lets it in: chain INPUT ends with policy drop.
+
+  1  route                    for this machine: 2001:db8:1::10 is one of its own addresses
+> 2  input  ip6 filter INPUT  policy drop: no rule let it through
+

@@ -1,0 +1,74 @@
+table ip filter {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		tcp flags & (syn | ack) == syn | ack counter packets 0 bytes 0 accept
+		tcp flags ! fin,syn,rst,psh,ack,urg counter packets 0 bytes 0 drop
+		tcp flags & (fin | syn | rst | psh | ack | urg) == fin | psh | urg counter packets 0 bytes 0 drop
+		tcp flags & (fin | syn | rst | ack) != syn counter packets 0 bytes 0 drop
+		tcp flags & (fin | syn | rst | ack) == syn tcp dport 2222 counter packets 0 bytes 0 accept
+		ip protocol udp ip frag-off & 0x1fff == 0x0 counter packets 0 bytes 0 accept
+		ip frag-off & 0x1fff != 0x0 counter packets 0 bytes 0 drop
+		limit rate 5/hour burst 5 packets counter packets 0 bytes 0 accept
+		limit rate 3/minute burst 10 packets counter packets 0 bytes 0 accept
+		limit rate 2/day burst 5 packets counter packets 0 bytes 0 accept
+		counter packets 0 bytes 0 log prefix "p" group 3 queue-threshold 5
+		counter packets 0 bytes 0 log group 0
+		ip protocol != tcp counter packets 0 bytes 0 accept
+		ip protocol gre counter packets 0 bytes 0 accept
+		counter packets 0 bytes 0 jump side
+		iifname != "eth0" counter packets 0 bytes 0 accept
+		ip saddr != 198.51.100.0/24 ip daddr != 203.0.113.10 counter packets 0 bytes 0 accept
+		tcp sport != 1-1023 tcp dport != 22 counter packets 0 bytes 0 accept
+		udp sport 1024-65535 udp dport 53 counter packets 0 bytes 0 accept
+		meta mark != 0x00000001 counter packets 0 bytes 0 accept
+		meta mark & 0x000000ff == 0x00000010 counter packets 0 bytes 0 accept
+		ip protocol tcp counter packets 0 bytes 0 accept
+		ip protocol tcp xt match "tcp" counter packets 0 bytes 0 accept
+		tcp dport 22 tcp sport 1024 counter packets 0 bytes 0 accept
+		ip protocol esp counter packets 0 bytes 0 accept
+		ip protocol icmp counter packets 0 bytes 0 accept
+		ip saddr 198.51.100.0/24 counter packets 0 bytes 0 accept
+		ip protocol tcp xt match "tcp" counter packets 0 bytes 0 accept
+		ip protocol dccp xt match "dccp" counter packets 0 bytes 0 accept
+		counter packets 0 bytes 0 meta nftrace set 1
+	}
+
+	chain FORWARD {
+		type filter hook forward priority filter; policy accept;
+		iifname "eth0" counter packets 0 bytes 0 jump side
+		tcp dport 80 counter packets 0 bytes 0 goto side
+	}
+
+	chain OUTPUT {
+		type filter hook output priority filter; policy accept;
+	}
+
+	chain side {
+	}
+}
+table ip6 filter {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		meta l4proto tcp counter packets 0 bytes 0 accept
+		meta l4proto != udp counter packets 0 bytes 0 accept
+		tcp dport 22 counter packets 0 bytes 0 accept
+		tcp flags & (fin | syn | rst | ack) == syn counter packets 0 bytes 0 accept
+		limit rate 5/second burst 5 packets counter packets 0 bytes 0 accept
+		ip6 saddr 2001:db8:99::/64 ip6 daddr 2001:db8:1::10 iifname "eth0" udp dport 53 counter packets 0 bytes 0 accept
+		ip6 saddr != 2001:db8:99::7 counter packets 0 bytes 0 drop
+		meta l4proto ipv6-icmp counter packets 0 bytes 0 accept
+		meta l4proto ipv6-icmp counter packets 0 bytes 0 accept
+		meta mark & 0x0000000f == 0x00000002 counter packets 0 bytes 0 accept
+		counter packets 0 bytes 0 log group 4
+		tcp dport 100-200 counter packets 0 bytes 0 drop
+		ip6 saddr & ffff:ffff:0:ffff:: == 2001:db8:: counter packets 0 bytes 0 drop
+	}
+
+	chain FORWARD {
+		type filter hook forward priority filter; policy accept;
+	}
+
+	chain OUTPUT {
+		type filter hook output priority filter; policy accept;
+	}
+}

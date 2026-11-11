@@ -1,0 +1,218 @@
+table inet firewalld (nft)
+  chain mangle_PREROUTING: filter hook prerouting priority -140 policy accept
+    jump mangle_PREROUTING_ZONES
+        jump mangle_PREROUTING_ZONES
+  chain mangle_PREROUTING_ZONES
+    ip saddr @office goto mangle_PRE_trusted
+        match nfproto in {4}
+        match saddr in @inet/firewalld/office
+        goto mangle_PRE_trusted
+    iifname "eth0" goto mangle_PRE_public
+        match iif in {"eth0"}
+        goto mangle_PRE_public
+    goto mangle_PRE_public
+        goto mangle_PRE_public
+  chain mangle_PRE_public
+    jump mangle_PRE_public_allow
+        jump mangle_PRE_public_allow
+  chain mangle_PRE_public_allow
+  chain mangle_PRE_trusted
+  chain nat_PREROUTING: nat hook prerouting priority -90 policy accept
+    jump nat_PREROUTING_ZONES
+        jump nat_PREROUTING_ZONES
+  chain nat_PREROUTING_ZONES
+    ip saddr @office goto nat_PRE_trusted
+        match nfproto in {4}
+        match saddr in @inet/firewalld/office
+        goto nat_PRE_trusted
+    iifname "eth0" goto nat_PRE_public
+        match iif in {"eth0"}
+        goto nat_PRE_public
+    goto nat_PRE_public
+        goto nat_PRE_public
+  chain nat_PRE_public
+    jump nat_PRE_public_allow
+        jump nat_PRE_public_allow
+  chain nat_PRE_public_allow
+    meta nfproto ipv4 tcp dport 8080 redirect to :80
+        match nfproto in {4}
+        match l4proto in {6}
+        match dport in {8080}
+        redirect port 80
+    meta nfproto ipv4 tcp dport 2222 dnat ip to 192.0.2.5:22
+        match nfproto in {4}
+        match l4proto in {6}
+        match dport in {2222}
+        dnat 192.0.2.5 port 22
+  chain nat_PRE_trusted
+  chain nat_POSTROUTING: nat hook postrouting priority 110 policy accept
+    jump nat_POSTROUTING_ZONES
+        jump nat_POSTROUTING_ZONES
+  chain nat_POSTROUTING_ZONES
+    oifname "eth0" goto nat_POST_public
+        match oif in {"eth0"}
+        goto nat_POST_public
+    goto nat_POST_public
+        goto nat_POST_public
+  chain nat_POST_public
+    jump nat_POST_public_allow
+        jump nat_POST_public_allow
+  chain nat_POST_public_allow
+    meta nfproto ipv4 oifname != "lo" masquerade
+        match nfproto in {4}
+        match oif not in {"lo"}
+        noop (masquerade)
+  chain filter_PREROUTING: filter hook prerouting priority 10 policy accept
+    icmpv6 type { nd-router-advert, nd-neighbor-solicit } accept
+        match nfproto in {6}
+        match l4proto in {58}
+        match icmpv6-type in {134, 135}
+        accept
+    meta nfproto ipv6 fib saddr . mark . iif check missing drop
+        match nfproto in {6}
+        match rpf-ok in {0}
+        drop
+  chain filter_INPUT: filter hook input priority 10 policy accept
+    ct state { established, related } accept
+        match ctstate in {2, 4}
+        accept
+    ct status dnat accept
+        match ct-dnat in {1}
+        accept
+    iifname "lo" accept
+        match iif in {"lo"}
+        accept
+    ct state invalid drop
+        match ctstate in {1}
+        drop
+    jump filter_INPUT_ZONES
+        jump filter_INPUT_ZONES
+    reject with icmpx admin-prohibited
+        reject
+  chain filter_FORWARD: filter hook forward priority 10 policy accept
+    ct state { established, related } accept
+        match ctstate in {2, 4}
+        accept
+    ct status dnat accept
+        match ct-dnat in {1}
+        accept
+    iifname "lo" accept
+        match iif in {"lo"}
+        accept
+    ct state invalid drop
+        match ctstate in {1}
+        drop
+    ip6 daddr { ::/96, ::ffff:0.0.0.0/96, 2002::/24, 2002:a00::/24, 2002:7f00::/24, 2002:a9fe::/32, 2002:ac10::/28, 2002:c0a8::/32, 2002:e000::/19 } reject with icmpv6 addr-unreachable
+        match nfproto in {6}
+        match daddr in {::/96, ::ffff:0.0.0.0/96, 2002::/24, 2002:a00::/24, 2002:7f00::/24, 2002:a9fe::/32, 2002:ac10::/28, 2002:c0a8::/32, 2002:e000::/19}
+        reject
+    jump filter_FORWARD_ZONES
+        jump filter_FORWARD_ZONES
+    reject with icmpx admin-prohibited
+        reject
+  chain filter_OUTPUT: filter hook output priority 10 policy accept
+    ct state { established, related } accept
+        match ctstate in {2, 4}
+        accept
+    oifname "lo" accept
+        match oif in {"lo"}
+        accept
+    ip6 daddr { ::/96, ::ffff:0.0.0.0/96, 2002::/24, 2002:a00::/24, 2002:7f00::/24, 2002:a9fe::/32, 2002:ac10::/28, 2002:c0a8::/32, 2002:e000::/19 } reject with icmpv6 addr-unreachable
+        match nfproto in {6}
+        match daddr in {::/96, ::ffff:0.0.0.0/96, 2002::/24, 2002:a00::/24, 2002:7f00::/24, 2002:a9fe::/32, 2002:ac10::/28, 2002:c0a8::/32, 2002:e000::/19}
+        reject
+  chain filter_INPUT_ZONES
+    ip saddr @office goto filter_IN_trusted
+        match nfproto in {4}
+        match saddr in @inet/firewalld/office
+        goto filter_IN_trusted
+    iifname "eth0" goto filter_IN_public
+        match iif in {"eth0"}
+        goto filter_IN_public
+    goto filter_IN_public
+        goto filter_IN_public
+  chain filter_IN_public
+    jump filter_IN_public_pre
+        jump filter_IN_public_pre
+    jump filter_IN_public_log
+        jump filter_IN_public_log
+    jump filter_IN_public_deny
+        jump filter_IN_public_deny
+    jump filter_IN_public_allow
+        jump filter_IN_public_allow
+    jump filter_IN_public_post
+        jump filter_IN_public_post
+    meta l4proto { icmp, ipv6-icmp } accept
+        match l4proto in {1, 58}
+        accept
+    reject with icmpx admin-prohibited
+        reject
+  chain filter_IN_public_pre
+  chain filter_IN_public_log
+    ip saddr 198.51.100.0/24 tcp dport 3306 ct state { new, untracked } limit rate 3/minute burst 5 packets log prefix "'mysql '"
+        match nfproto in {4}
+        match saddr in {198.51.100.0/24}
+        match l4proto in {6}
+        match dport in {3306}
+        match ctstate in {8, 16}
+        always (rate limit (limit rate): its burst lets a first packet through)
+        noop (log)
+  chain filter_IN_public_deny
+    ip saddr 203.0.113.66 ct state { new, untracked } drop
+        match nfproto in {4}
+        match saddr in {203.0.113.66}
+        match ctstate in {8, 16}
+        drop
+    icmp type echo-request reject with icmpx admin-prohibited
+        match nfproto in {4}
+        match l4proto in {1}
+        match icmp-type in {8}
+        reject
+  chain filter_IN_public_allow
+    tcp dport 22 ct state { new, untracked } accept
+        match l4proto in {6}
+        match dport in {22}
+        match ctstate in {8, 16}
+        accept
+    ip6 daddr fe80::/64 udp dport 546 ct state { new, untracked } accept
+        match nfproto in {6}
+        match daddr in {fe80::/64}
+        match l4proto in {17}
+        match dport in {546}
+        match ctstate in {8, 16}
+        accept
+    tcp dport 8443 ct state { new, untracked } accept
+        match l4proto in {6}
+        match dport in {8443}
+        match ctstate in {8, 16}
+        accept
+    udp dport 60000-61000 ct state { new, untracked } accept
+        match l4proto in {17}
+        match dport in {60000-61000}
+        match ctstate in {8, 16}
+        accept
+    ip saddr 198.51.100.0/24 tcp dport 3306 ct state { new, untracked } accept
+        match nfproto in {4}
+        match saddr in {198.51.100.0/24}
+        match l4proto in {6}
+        match dport in {3306}
+        match ctstate in {8, 16}
+        accept
+  chain filter_IN_public_post
+  chain filter_IN_trusted
+    accept
+        accept
+  chain filter_FORWARD_ZONES
+    iifname "eth0" goto filter_FWD_public
+        match iif in {"eth0"}
+        goto filter_FWD_public
+    goto filter_FWD_public
+        goto filter_FWD_public
+  chain filter_FWD_public
+    jump filter_FWD_public_allow
+        jump filter_FWD_public_allow
+  chain filter_FWD_public_allow
+    oifname "eth0" accept
+        match oif in {"eth0"}
+        accept
+set @inet/firewalld/office {192.0.2.0/24, 198.51.100.40}
