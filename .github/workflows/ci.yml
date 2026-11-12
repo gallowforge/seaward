@@ -92,8 +92,12 @@ jobs:
           # Five tries, a pause between them, and the step still fails when the last one does.
           APT='-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60'
           apt_install() {
+            # A mirror whose name does not resolve right now is dropped before the first try: apt
+            # spends minutes giving up on it, and an update that never reached it still exits 0.
+            timeout 5 getent hosts azure.archive.ubuntu.com >/dev/null ||
+              sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             for try in 1 2 3 4 5; do
-              if sudo apt-get $APT update -qq && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
+              if sudo apt-get $APT update -qq --error-on=any && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
               echo "apt-get could not install $* (try $try of 5)" >&2
               sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
               [ "$try" = 5 ] || sleep 20
@@ -153,8 +157,12 @@ jobs:
           # Five tries, a pause between them, and the step still fails when the last one does.
           APT='-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60'
           apt_install() {
+            # A mirror whose name does not resolve right now is dropped before the first try: apt
+            # spends minutes giving up on it, and an update that never reached it still exits 0.
+            timeout 5 getent hosts azure.archive.ubuntu.com >/dev/null ||
+              sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             for try in 1 2 3 4 5; do
-              if sudo apt-get $APT update -qq && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
+              if sudo apt-get $APT update -qq --error-on=any && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
               echo "apt-get could not install $* (try $try of 5)" >&2
               sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
               [ "$try" = 5 ] || sleep 20
@@ -176,8 +184,12 @@ jobs:
           # Five tries, a pause between them, and the step still fails when the last one does.
           APT='-o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60'
           apt_install() {
+            # A mirror whose name does not resolve right now is dropped before the first try: apt
+            # spends minutes giving up on it, and an update that never reached it still exits 0.
+            timeout 5 getent hosts azure.archive.ubuntu.com >/dev/null ||
+              sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
             for try in 1 2 3 4 5; do
-              if sudo apt-get $APT update -qq && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
+              if sudo apt-get $APT update -qq --error-on=any && sudo apt-get $APT install -y -qq "$@"; then return 0; fi
               echo "apt-get could not install $* (try $try of 5)" >&2
               sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
               [ "$try" = 5 ] || sleep 20
